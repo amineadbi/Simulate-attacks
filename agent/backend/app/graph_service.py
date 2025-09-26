@@ -119,6 +119,9 @@ class GraphService:
         return GraphPayload(nodes=nodes, edges=edges)
 
     def run_cypher(self, query: str, params: Optional[Dict[str, Any]], mode: str) -> Dict[str, Any]:
+        mode = (mode or 'read').lower()
+        if mode not in {'read', 'write'}:
+            raise HTTPException(status_code=400, detail="Invalid mode")
         driver = self._driver_factory.get_driver()
         if not driver:
             raise HTTPException(status_code=503, detail="Neo4j connection not configured")

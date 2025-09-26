@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useState } from "react";
+import { loadGraph } from "../lib/api";
 import type { GraphPayload } from "../types/graph";
 
 interface GraphUploaderProps {
@@ -10,6 +11,18 @@ interface GraphUploaderProps {
 export default function GraphUploader({ onGraphLoaded }: GraphUploaderProps) {
   const [status, setStatus] = useState<string>("No graph loaded");
 
+  async function hydrateBackend(payload: GraphPayload) {
+    try {
+      await loadGraph(payload);
+      setStatus(
+        `Synced graph to backend (nodes: ${payload.nodes.length}, edges: ${payload.edges.length})`
+      );
+    } catch (error) {
+      console.error(error);
+      setStatus("Loaded locally but failed to sync backend");
+    }
+  }
+
   async function parseGraph(text: string) {
     try {
       const payload = JSON.parse(text) as GraphPayload;
@@ -18,6 +31,7 @@ export default function GraphUploader({ onGraphLoaded }: GraphUploaderProps) {
       }
       onGraphLoaded(payload);
       setStatus(`Loaded graph (nodes: ${payload.nodes.length}, edges: ${payload.edges.length})`);
+      await hydrateBackend(payload);
     } catch (error) {
       console.error(error);
       setStatus(`Failed to parse graph: ${(error as Error).message}`);

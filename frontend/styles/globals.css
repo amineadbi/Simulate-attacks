@@ -186,3 +186,124 @@ details summary {
     min-height: 400px;
   }
 }
+.headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.indicator .dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.indicator-open {
+  color: #34d399;
+}
+
+.indicator-connecting,
+.indicator-retrying {
+  color: #fbbf24;
+}
+
+.indicator-error {
+  color: #f87171;
+}
+
+.indicator-closed,
+.indicator-idle {
+  color: #cbd5e1;
+}
+
+.indicator .meta {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.scenario-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.connection {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.connection-open {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #bbf7d0;
+}
+
+.connection-connecting,
+.connection-retrying {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+
+.connection-closed,
+.connection-idle {
+  color: #e2e8f0;
+}
+
+.connection-error {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+}
+
+.log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.log-entry .timestamp {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+  min-width: 4ch;
+}
+
+.log-entry .message {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.level-error .message {
+  color: #f97316;
+}
+
+.level-warn .message {
+  color: #fbbf24;
+}
+
+.scenario-placeholder {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.7);
+}

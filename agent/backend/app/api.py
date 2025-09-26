@@ -3,10 +3,10 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel, Field
 
-from agent.models import Edge, GraphMutation, GraphPayload, Node, ScenarioJob
+from agent.models import Edge, GraphMutation, GraphPayload, Node
 
 from .graph_service import GraphService
 from .settings import Settings, get_settings
@@ -46,13 +46,12 @@ class MutationRequest(BaseModel):
 
 
 @lru_cache(maxsize=1)
-def get_service(settings: Optional[Settings] = None) -> GraphService:
-    return GraphService(settings=settings)
+def get_service() -> GraphService:
+    return GraphService()
 
 
 def graph_service_dep() -> GraphService:
-    settings = get_settings()
-    return get_service(settings)
+    return get_service()
 
 
 @router.post("/load_graph")
