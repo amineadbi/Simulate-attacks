@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "source": "sample",
+    "ingested_at": "2025-09-20"
+  },
+  "nodes": [
+    { "id": "workstation-1", "labels": ["Host", "Windows"], "attrs": { "ip": "10.1.1.5", "role": "workstation", "name": "Workstation 1" } },
+    { "id": "server-1", "labels": ["Host", "Linux", "Critical"], "attrs": { "ip": "10.1.2.7", "role": "fileserver", "name": "File Server" } },
+    { "id": "dc-1", "labels": ["Host", "Windows", "Critical"], "attrs": { "ip": "10.1.0.10", "role": "domain-controller", "name": "Domain Controller" } },
+    { "id": "subnet-a", "labels": ["Network"], "attrs": { "cidr": "10.1.1.0/24", "name": "Corp Subnet" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "workstation-1", "target": "server-1", "type": "allowed_tcp", "attrs": { "port": 445, "proto": "tcp" } },
+    { "id": "e2", "source": "workstation-1", "target": "dc-1", "type": "kerberos", "attrs": { "port": 88, "proto": "udp" } },
+    { "id": "e3", "source": "dc-1", "target": "server-1", "type": "replication", "attrs": { "port": 389, "proto": "tcp" } },
+    { "id": "e4", "source": "workstation-1", "target": "subnet-a", "type": "member_of", "attrs": {} },
+    { "id": "e5", "source": "server-1", "target": "subnet-a", "type": "hosted_in", "attrs": {} }
+  ]
+}

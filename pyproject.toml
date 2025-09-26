@@ -1,0 +1,32 @@
+[project]
+name = "bnp-agent"
+version = "0.1.0"
+description = "LangGraph conversational agent orchestrating MCP tools for network attack simulation."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.1.0",
+    "langchain-core>=0.2.20",
+    "langchain-openai>=0.1.7",
+    "pydantic>=2.5",
+    "httpx>=0.26",
+    "tenacity>=8.2",
+    "python-dotenv>=1.0",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "neo4j>=5.20",
+    "pydantic-settings>=2.2"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.5"
+]
+
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+

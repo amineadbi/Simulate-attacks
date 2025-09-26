@@ -1,0 +1,405 @@
+Here’s a tight, build-ready **blueprint / maquette** you can use to split work across tracks (agent + MCP tools + graph store + connectors + frontend). I’ve kept it concrete—schemas, minimal code stubs, state machines, and sprintable milestones—so you can stand this up fast and iterate.
+
+---
+
+# 0) System at a glance
+
+**Flow (E2E):**
+User uploads or describes a network → LLM (LangGraph loop) decides which **MCP tools** to call → MCP server mutates the graph (DB + cache) → User clicks **“Run scenario”** (Caldera / AttackIQ / Cymulate / SafeBreach connectors) → platform executes attack(s) → results written back to graph / shown in UI.
+
+**Major components**
+
+* **Conversational Orchestrator:** LangGraph-based agent with a tight loop + tool-use (MCP). ([LangChain AI][1])
+* **MCP Server:** FastAPI app exposing graph tools (add\_node, add\_edge, delete\_edge, run\_cypher, load\_graph, etc.), auto-converted to MCP via **fastapi-mcp / FastMCP**. ([PyPI][2])
+* **Graph Store + Query:** Neo4j or Memgraph, queried with (open)Cypher; optional in-memory cache for interactive edits. ([Graph Database & Analytics][3])
+* **Connectors (Pentest/BAS):** MITRE **Caldera** (open-source) first; optional commercial: AttackIQ, Cymulate, SafeBreach. ([caldera.mitre.org][4])
+* **Frontend:** React/Next.js. **Sigma.js + graphology** (WebGL) for big graphs; Cytoscape.js as alternative. Query bar supports Cypher. ([sigmajs.org][5])
+* **(Optional) OpenAI Agents path:** If you prefer OpenAI Agents tooling for tool-use instead/alongside LangGraph. ([OpenAI Platform][6])
+* **Protocol:** Model Context Protocol (MCP) for tool exposure & standardization. ([Model Context Protocol][7])
+
+---
+
+# 1) Data contract (graph JSON)
+
+**Input JSON (heterogeneous, versioned)**
+
+```json
+{
+  "version": "1.0",
+  "metadata": { "source": "bnp-demo", "ingested_at": "2025-09-26" },
+  "nodes": [
+    {"id": "n1", "labels": ["Host","Windows"], "attrs": {"ip":"10.1.1.5","role":"workstation"}},
+    {"id": "n2", "labels": ["Host","Linux"],   "attrs": {"ip":"10.1.2.7","role":"server"}}
+  ],
+  "edges": [
+    {"id":"e1","source":"n1","target":"n2","type":"allowed_tcp","attrs":{"port":445,"proto":"tcp"}}
+  ]
+}
+```
+
+**Mapping rules**
+
+* `labels` → Neo4j labels / Memgraph labels; `attrs` → node/edge properties.
+* Maintain `id` as stable external key; store DB internal IDs separately.
+* Enforce stringly-typed attributes at ingestion; cast known keys (ip/port).
+* Keep a **schema registry** doc (YAML) for known attributes & validators.
+
+**Cypher compatibility:** prefer Cypher 5/25 subset for portability; Memgraph supports openCypher with small differences—avoid vendor extensions in the agent-generated queries. ([Graph Database & Analytics][3])
+
+---
+
+# 2) MCP server (FastAPI → MCP)
+
+**Responsibilities**
+
+* CRUD on graph (idempotent, transactional).
+* Bulk load/export.
+* Safe **Cypher execution** (whitelist clauses; add `LIMIT` by default; optional read-only mode).
+* Connect/run/monitor external scenarios.
+* Return structured results with stable IDs for the UI.
+
+**Recommended stack**
+FastAPI + Pydantic models; expose endpoints; then **generate MCP** using **fastapi-mcp** (or mount with **FastMCP**). ([PyPI][2])
+
+**Tool surface (initial)**
+
+* `load_graph(json: GraphPayload) -> Summary`
+* `add_node(id, labels, attrs) -> Node`
+* `update_node(id, attrs) -> Node`
+* `delete_node(id) -> Summary`
+* `add_edge(id, source, target, type, attrs) -> Edge`
+* `update_edge(id, attrs) -> Edge`
+* `delete_edge(id) -> Summary`
+* `run_cypher(query, params?, mode={"read"|"write"}) -> Records`
+* `get_subgraph(node_ids?, cypher?, limit?) -> GraphJSON`
+* `start_attack(platform, scenario_id, target_selector, params?) -> JobId`
+* `check_attack(job_id) -> Status`
+* `fetch_results(job_id) -> Findings`
+* `annotate_nodes(ids, tag) -> Summary`
+
+**Minimal FastAPI skeleton (abridged)**
+
+```python
+# app.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+
+class Node(BaseModel):
+    id: str
+    labels: List[str] = Field(default_factory=list)
+    attrs: Dict[str, Any] = Field(default_factory=dict)
+
+class Edge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str
+    attrs: Dict[str, Any] = Field(default_factory=dict)
+
+class GraphPayload(BaseModel):
+    version: str
+    metadata: Dict[str, Any] = {}
+    nodes: List[Node]
+    edges: List[Edge]
+
+app = FastAPI(title="Graph MCP API")
+
+@app.post("/tools/load_graph")
+def load_graph(payload: GraphPayload):
+    # validate & upsert into DB + cache
+    return {"nodes": len(payload.nodes), "edges": len(payload.edges)}
+
+@app.post("/tools/add_node")
+def add_node(n: Node):
+    return n
+
+# ... other endpoints ...
+```
+
+**Expose as MCP (2 paths):**
+
+* **fastapi-mcp**:
+
+  ```python
+  # mcp_mount.py
+  from fastapi_mcp import FastApiMCP
+  from app import app
+  mcp = FastApiMCP(app, name="Graph Tools")
+  mcp.mount_http()  # or mcp.mount()
+  ```
+
+  ([PyPI][2])
+* **FastMCP** alternative (from existing FastAPI):
+
+  ```python
+  from fastmcp import FastMCP
+  from app import app
+  mcp = FastMCP.from_fastapi(app=app, name="Graph Tools")
+  mcp.mount_into(app)
+  ```
+
+  ([FastMCP][8])
+
+**Auth & safety**
+
+* FastAPI `Depends()` guards; API keys/JWT; IP allowlist.
+* MCP: publish only tool schemas you want callable; document rate limits.
+* **Cypher guardrail:** only `MATCH/RETURN`, optional `CALL db.schema.visualization`, enforce default `LIMIT 2000`. (Tunable.)
+* Structured audit log per tool call (input hash, actor, time).
+* MCP background: standardizes agent↔tool contracts (discovery, schema), improving portability. ([Model Context Protocol][7])
+
+---
+
+# 3) Orchestration (LangGraph loop + tools)
+
+**Why LangGraph:** deterministic, stateful agent graphs with cycles/retries/checkpoints; easy tool binding; JS/Python SDKs. ([LangChain AI][1])
+
+**State machine (first cut)**
+
+```
+[UserInput]
+   ↓
+[Router] --(describe/build graph?)--> [GraphBuilderToolUse] --→
+   │                                           │
+   ├--(query/inspect?)--> [CypherPlanner] -----┘
+   │
+   └--(attack?)--> [ScenarioPlanner] → [ConnectorExecutor] → [ResultIngest]
+                                          ↑                   │
+                                          └──────[Poll]───────┘
+          (all nodes write to [Memory/Artifacts], with loop until done)
+```
+
+**Binding tools:** the agent calls MCP tools (`add_node`, `run_cypher`, `start_attack`, …). Keep a **tool catalog** with natural-language descriptions + JSON schemas to improve tool-selection reliability.
+
+**Alternative path:** OpenAI **Agents** (Responses/Agents stack) with tools; MCP servers plug into clients like ChatGPT/Claude as well. ([OpenAI Platform][6])
+
+---
+
+# 4) Graph store strategy
+
+* Start with **Neo4j** (mature ecosystem) or **Memgraph** (fast, openCypher-compatible & streaming-friendly). Both speak Cypher/openCypher. ([Graph Database & Analytics][3])
+* For live editing UX, keep a **write-through in-memory map** keyed by `id`; flush to DB in batches; always return stable `id`s to UI.
+
+---
+
+# 5) Frontend (large graph UX)
+
+**Stack:** Next.js + TS + **sigma.js + graphology** (WebGL; handles thousands of nodes smoothly; great with dynamic styling). Optional **Cytoscape.js** if you need its layout/extension ecosystem. ([sigmajs.org][5])
+
+**Key features**
+
+* **Upload/describe**: file drop for JSON + chat box for NL commands.
+* **Graph view:** progressive rendering; level-of-detail; mini-map; search; pin/focus; contextual side panel.
+* **Filters:** text search, property facets, **Cypher input** box; results streamed to viewer. Neo4j / Memgraph handle Cypher. ([Graph Database & Analytics][3])
+* **Scenario buttons:** “Plan attack”, “Run Caldera”, “Run AttackIQ”, etc.
+* **Results overlay:** color edges/nodes by blast radius, exfiltration path; store `finding_id` on nodes.
+* **Alt visualizations:** neovis.js if you pull directly from Neo4j (skip if you’ll keep a custom API). ([Graph Database & Analytics][9])
+
+---
+
+# 6) Pentesting / BAS connectors
+
+**Start with MITRE Caldera (open-source)**
+
+* API v2 via Caldera server; start operation, monitor, fetch results. ([caldera.readthedocs.io][10])
+
+**Commercial options (behind feature flags)**
+
+* **AttackIQ** (platform + XSOAR integration examples). ([AttackIQ][11])
+* **Cymulate** API (rate limits documented). ([api.app.cymulate.com][12])
+* **SafeBreach** (API available; Postman collection). ([SafeBreach][13])
+
+**Mapping**
+
+* Provide a **target selector** abstraction: from Cypher (e.g., `MATCH (h:Host {role:'server'}) RETURN h.id`) → list of asset IDs → platform-specific payload.
+* Normalize job lifecycle: `start_attack` → `job_id` → `check_attack` (`queued|running|failed|done`) → `fetch_results`.
+
+---
+
+# 7) Security, governance, audit
+
+* **AuthZ:** per-tool role mapping (read-only graph vs. mutation vs. connector execution).
+* **Cypher sandbox:** deny `CALL dbms.*` and administrative procedures; server-enforced `LIMIT`.
+* **PII/IP hygiene:** redact/export rules by label/attribute.
+* **Audit:** MCP call ledger (ISO timestamp, actor, tool, inputs hash, outputs hash).
+* **MCP rationale:** standardized tool discovery/schemas improve auditability & portability across LLM runtimes. ([Model Context Protocol][7])
+
+---
+
+# 8) Minimal contracts (for task handoff)
+
+**REST (then MCP) – examples**
+
+`POST /tools/add_node`
+Request: `Node` (above). Response: `Node`
+
+`POST /tools/run_cypher`
+
+```json
+{ "query": "MATCH (h:Host) RETURN h.id LIMIT 200", "params": {}, "mode": "read" }
+```
+
+Response (tabular): `{ "columns": ["h.id"], "rows":[["n2"],["n5"]] }`
+
+`POST /tools/start_attack`
+
+```json
+{
+  "platform":"caldera",
+  "scenario_id":"T1059-powershell",
+  "target_selector":{"cypher":"MATCH (h:Host {role:'server'}) RETURN h.id"},
+  "params":{"max_runtime_sec":600}
+}
+```
+
+---
+
+# 9) Thin LangGraph skeleton (Python)
+
+```python
+# agent.py (pseudo-ish)
+from langgraph.graph import StateGraph
+from typing import TypedDict
+
+class S(TypedDict):
+    user_input: str
+    plan: str
+    artifacts: dict
+    done: bool
+
+def router(s: S):
+    # classify intent: build graph / query / run scenario
+    ...
+
+def use_graph_tools(s: S):
+    # call MCP add_node/add_edge/run_cypher via HTTP or local ASGI client
+    ...
+
+def plan_scenario(s: S):
+    # produce scenario template (ATT&CK tactics mapped from graph attrs)
+    ...
+
+def exec_connector(s: S):
+    # start_attack + poll + fetch_results
+    ...
+
+g = StateGraph(S)
+g.add_node("router", router)
+g.add_node("graph_tools", use_graph_tools)
+g.add_node("plan_scenario", plan_scenario)
+g.add_node("exec_connector", exec_connector)
+# edges with loops until s["done"] == True
+```
+
+(Attach tool schemas to the model prompt; checkpoint between nodes.) ([LangChain AI][1])
+
+---
+
+# 10) Frontend plan (Next.js + Sigma.js)
+
+* **Graph store adapter:** `/api/graph/subgraph` returns `{nodes, edges}` (graphology format).
+* **Sigma renderer:** hover/selection, viewport-based loading, degree-based LOD.
+* **Cypher bar:** posts to `/tools/run_cypher` and swaps the rendered subgraph.
+* **Inspector:** show node `attrs`, attach batch operations (tagging, annotate).
+* Sigma.js works in symbiosis with **graphology**; both are well-documented. ([sigmajs.org][5])
+* Keep **Cytoscape.js** as a fallback/alt if you need its algorithms or plugin ecosystem. ([js.cytoscape.org][14])
+
+---
+
+# 11) Milestones (6–8 weeks, parallelizable)
+
+**M1 – Contracts & skeletons (Week 1)**
+
+* Finalize JSON schema + Pydantic models; spin **FastAPI** app with `/tools/*`.
+* Mount **fastapi-mcp** or **FastMCP**; publish tool list to the agent. ([PyPI][2])
+
+**M2 – Graph DB + Cypher (Weeks 1–2)**
+
+* Provision **Neo4j** or **Memgraph**; implement write-through cache; `/run_cypher` guardrails. ([Graph Database & Analytics][3])
+
+**M3 – Frontend MVP (Weeks 2–3)**
+
+* File upload → `/tools/load_graph`; render with **Sigma.js + graphology**; filters & search. ([sigmajs.org][5])
+
+**M4 – Agent loop (Weeks 3–4)**
+
+* LangGraph router + tool use; prompt templates for: “Describe network”, “Modify graph”, “Plan scenario.” ([LangChain AI][1])
+
+**M5 – Caldera connector (Weeks 4–5)**
+
+* `start_attack/check/fetch` against local Caldera; map graph→targets; show results overlay. ([caldera.mitre.org][4])
+
+**M6 – Hardening & scale (Weeks 5–6)**
+
+* RBAC, audit, rate limits; pagination/LOD for big graphs; load tests (>100k edges).
+* Optional: commercial BAS provider behind feature flag. ([AttackIQ][11])
+
+**M7 – Nice-to-haves (Weeks 7–8)**
+
+* Neovis.js mode (direct Neo4j draw), Bloom-style search, presets for ATT\&CK tactics. ([Graph Database & Analytics][9])
+
+---
+
+# 12) Test & eval
+
+* **Unit:** schema validation, CRUD idempotence, Cypher guardrails (deny-list).
+* **Agent eval:** scripted traces (NL → tools) for 20 canonical tasks; log tool accuracy & correction rate.
+* **Connector sandbox:** use fake targets + Caldera in lab; verify status transitions & findings ingestion.
+* **Perf:** render time vs. node/edge count; server TPS for tool calls; Cypher latency p95.
+
+---
+
+# 13) Risks & guardrails
+
+* **LLM overreach (destructive Cypher):** force `mode="read"` unless explicitly switched; dry-run preview for writes.
+* **Graph bloat in UI:** server-side sampling & `LIMIT`; offer “expand from node” interactions.
+* **Connector coupling:** keep a thin adapter layer (normalize `JobId`, `Status`, `Findings`).
+
+---
+
+## Notes on choices (with references)
+
+* **MCP** is the right contract for tool exposure & discovery, and FastAPI can be turned into an MCP server with **fastapi-mcp** (or **FastMCP**) in a few lines. ([Model Context Protocol][7])
+* **LangGraph** gives you stateful, controllable agent graphs with loops/checkpoints; ideal for “plan→act→observe→repeat.” ([LangChain AI][1])
+* **Sigma.js + graphology** is a strong default for rendering large graphs in the browser (WebGL); **Cytoscape.js** is a reliable alternative with a rich ecosystem. ([sigmajs.org][5])
+* **Caldera** is the fastest on-ramp for adversary emulation; commercial BAS platforms can be added later via adapters. ([caldera.mitre.org][4])
+
+---
+
+## Concrete next actions (you can split across 4 people)
+
+1. **Backend/MCP (Dev A):**
+
+* Stand up FastAPI with the models above; wire to Neo4j/Memgraph.
+* Add fastapi-mcp/FastMCP mount + API key auth; emit OpenAPI & MCP manifest. ([PyPI][2])
+
+2. **Agent (Dev B):**
+
+* Build LangGraph graph with Router → GraphTools → (ScenarioPlanner → ConnectorExecutor) → ResultIngest.
+* Bind MCP tool schemas; add retry & checkpointing. ([LangChain AI][1])
+
+3. **Frontend (Dev C):**
+
+* Next.js app; Sigma + graphology renderer; upload + Cypher bar + scenario buttons. ([sigmajs.org][5])
+
+4. **Connector (Dev D):**
+
+* Deploy Caldera locally; implement `start_attack/check/fetch`; map findings to node/edge tags. ([caldera.mitre.org][4])
+
+If you want, I can draft the initial FastAPI file (with \~10 endpoints), a LangGraph router stub, and a minimal Next.js page that renders a sample graph with Sigma in one go.
+
+[1]: https://langchain-ai.github.io/langgraph/?utm_source=chatgpt.com "LangGraph - GitHub Pages"
+[2]: https://pypi.org/project/fastapi-mcp/?utm_source=chatgpt.com "fastapi-mcp"
+[3]: https://neo4j.com/docs/cypher-manual/current/introduction/?utm_source=chatgpt.com "Introduction - Cypher Manual"
+[4]: https://caldera.mitre.org/?utm_source=chatgpt.com "MITRE Caldera"
+[5]: https://www.sigmajs.org/?utm_source=chatgpt.com "Sigma.js"
+[6]: https://platform.openai.com/docs/guides/agents?utm_source=chatgpt.com "OpenAI Agents API documentation"
+[7]: https://modelcontextprotocol.io/specification/latest?utm_source=chatgpt.com "Specification"
+[8]: https://gofastmcp.com/integrations/fastapi?utm_source=chatgpt.com "FastAPI 🤝 FastMCP"
+[9]: https://neo4j.com/blog/developer/graph-visualization-with-neo4j-using-neovis-js/?utm_source=chatgpt.com "Graph Visualization with Neo4j Using Neovis.js"
+[10]: https://caldera.readthedocs.io/en/latest/The-REST-API.html?utm_source=chatgpt.com "The REST API - MITRE Caldera's documentation!"
+[11]: https://www.attackiq.com/platform/?utm_source=chatgpt.com "Platform"
+[12]: https://api.app.cymulate.com/docs/?utm_source=chatgpt.com "Cymulate Api"
+[13]: https://www.safebreach.com/breach-and-attack-simulation/?utm_source=chatgpt.com "Breach and Attack Simulation"
+[14]: https://js.cytoscape.org/?utm_source=chatgpt.com "Cytoscape.js"

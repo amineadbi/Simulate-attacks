@@ -1,0 +1,188 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, rgba(30, 64, 175, 0.25), transparent 55%),
+    #0f172a;
+}
+
+a {
+  color: inherit;
+}
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(12px);
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.subtitle {
+  margin-top: 0.5rem;
+  color: #cbd5f5;
+}
+
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.left-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.right-pane {
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.uploader,
+.cypher-panel,
+.scenario-panel,
+.log-panel,
+.result-panel {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+}
+
+.uploader-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.upload-button,
+button.secondary,
+button {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(96, 165, 250, 0.1);
+  color: #bfdbfe;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border 0.2s ease;
+}
+
+button.secondary {
+  background: rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
+}
+
+.upload-button:hover,
+button:hover {
+  background: rgba(96, 165, 250, 0.25);
+  border-color: rgba(59, 130, 246, 0.65);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+input,
+select,
+textarea {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  color: #f1f5f9;
+  font-family: inherit;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.error {
+  color: #f97316;
+  font-size: 0.85rem;
+}
+
+.cypher-result,
+.result-panel pre,
+details pre {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  max-height: 220px;
+}
+
+.log-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.log-panel li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  font-size: 0.9rem;
+}
+
+.scenario-status {
+  margin-top: 0.75rem;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 1200px) {
+  .main {
+    grid-template-columns: 1fr;
+  }
+
+  .right-pane {
+    min-height: 400px;
+  }
+}
