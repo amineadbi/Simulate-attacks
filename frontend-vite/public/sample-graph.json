@@ -1,0 +1,135 @@
+{
+  "nodes": [
+    {
+      "id": "web-server-1",
+      "label": "Web Server",
+      "type": "server",
+      "attributes": {
+        "ip": "192.168.1.10",
+        "os": "Ubuntu 20.04",
+        "services": ["nginx", "ssh"],
+        "criticality": "high"
+      }
+    },
+    {
+      "id": "database-1",
+      "label": "Database Server",
+      "type": "database",
+      "attributes": {
+        "ip": "192.168.1.20",
+        "os": "CentOS 7",
+        "services": ["mysql", "ssh"],
+        "criticality": "critical"
+      }
+    },
+    {
+      "id": "client-1",
+      "label": "User Workstation",
+      "type": "client",
+      "attributes": {
+        "ip": "192.168.1.100",
+        "os": "Windows 10",
+        "services": ["rdp"],
+        "criticality": "medium"
+      }
+    },
+    {
+      "id": "firewall-1",
+      "label": "Firewall",
+      "type": "firewall",
+      "attributes": {
+        "ip": "192.168.1.1",
+        "vendor": "pfSense",
+        "criticality": "high"
+      }
+    },
+    {
+      "id": "router-1",
+      "label": "Router",
+      "type": "network",
+      "attributes": {
+        "ip": "10.0.0.1",
+        "vendor": "Cisco",
+        "criticality": "high"
+      }
+    },
+    {
+      "id": "admin-pc",
+      "label": "Admin Workstation",
+      "type": "client",
+      "attributes": {
+        "ip": "192.168.1.50",
+        "os": "Windows 11",
+        "services": ["rdp", "ssh-client"],
+        "criticality": "high"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "source": "client-1",
+      "target": "firewall-1",
+      "label": "HTTP/HTTPS",
+      "type": "network_connection",
+      "attributes": {
+        "ports": [80, 443],
+        "protocol": "TCP"
+      }
+    },
+    {
+      "id": "edge-2",
+      "source": "firewall-1",
+      "target": "web-server-1",
+      "label": "Allowed Traffic",
+      "type": "allowed_connection",
+      "attributes": {
+        "ports": [80, 443],
+        "protocol": "TCP"
+      }
+    },
+    {
+      "id": "edge-3",
+      "source": "web-server-1",
+      "target": "database-1",
+      "label": "Database Query",
+      "type": "database_connection",
+      "attributes": {
+        "port": 3306,
+        "protocol": "TCP"
+      }
+    },
+    {
+      "id": "edge-4",
+      "source": "router-1",
+      "target": "firewall-1",
+      "label": "Network Route",
+      "type": "network_route",
+      "attributes": {
+        "protocol": "BGP"
+      }
+    },
+    {
+      "id": "edge-5",
+      "source": "admin-pc",
+      "target": "firewall-1",
+      "label": "Management",
+      "type": "management_connection",
+      "attributes": {
+        "ports": [22, 443],
+        "protocol": "TCP"
+      }
+    },
+    {
+      "id": "edge-6",
+      "source": "admin-pc",
+      "target": "web-server-1",
+      "label": "SSH Admin",
+      "type": "admin_connection",
+      "attributes": {
+        "port": 22,
+        "protocol": "TCP"
+      }
+    }
+  ]
+}

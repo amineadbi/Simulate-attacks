@@ -1,0 +1,106 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: agent/backend/Dockerfile
+    environment:
+      # Neo4j Configuration
+      GRAPH_NEO4J_URI: bolt://neo4j:7687
+      GRAPH_NEO4J_USER: neo4j
+      GRAPH_NEO4J_PASSWORD: neo4jtest
+      GRAPH_NEO4J_DATABASE: neo4j
+      GRAPH_DEFAULT_CYPHER_LIMIT: "100"
+      GRAPH_ALLOW_WRITE_CYPHER: "false"
+
+      # OpenAI Configuration (override with .env file)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini-2025-04-14}
+
+      # MCP Tools Configuration - Removed HTTP MCP, now using stdio transport
+
+      # Agent Configuration
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.1}
+      AGENT_MAX_TOKENS: ${AGENT_MAX_TOKENS:-4000}
+
+      # Development
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source for development (optional)
+      - type: bind
+        source: ./agent
+        target: /app/agent
+        read_only: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend-vite
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  neo4j:
+    image: neo4j:5.21
+    environment:
+      NEO4J_AUTH: neo4j/neo4jtest
+      # Performance and memory settings
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 1G
+      NEO4J_dbms_memory_pagecache_size: 512m
+      # Security settings
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*
+      # Logging
+      NEO4J_dbms_logs_query_enabled: "OFF"
+    healthcheck:
+      test: ["CMD", "cypher-shell", "--username", "neo4j", "--password", "neo4jtest", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "7474:7474"  # Neo4j Browser
+      - "7687:7687"  # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+    restart: unless-stopped
+
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_import:
+    driver: local
+
+# Development override file can be used with:
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
