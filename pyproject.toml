@@ -8,6 +8,8 @@ dependencies = [
     "langgraph>=0.1.0",
     "langchain-core>=0.2.20",
     "langchain-openai>=0.1.7",
+    "langchain-mcp-adapters>=0.1.10",
+    "mcp-neo4j-cypher>=0.3.0",
     "pydantic>=2.5",
     "httpx>=0.26",
     "tenacity>=8.2",
@@ -28,5 +30,6 @@ dev = [
 requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
-
-
+[tool.setuptools.packages.find]
+include = ["agent*"]
+exclude = ["frontend*", "tests*"]

@@ -1,59 +1,268 @@
-# Sentinel Guide Agent
+# Network Defense Graph Agent
 
-Sentinel Guide is a LangGraph-based conversational orchestrator that drives the network-graph MCP tools and breach-and-attack simulation connectors outlined in lueprint.txt. During this session we stood up the initial agent skeleton: the gent package with typed models and configuration, an async MCP tool registry, LangGraph nodes for graph mutations, Cypher querying, scenario execution, and result summarisation, and the create_application flow that binds everything together. This document captures the current structure, setup steps, and immediate follow-ups.
+A **LangGraph-based conversational agent** for network defense analysis using **Neo4j graph database** and **Model Context Protocol (MCP)** for tool integration.
 
-## Project Layout
+## 🏗️ Architecture
 
-- gent/
-  - config.py � configuration loader for LLM model selection and MCP endpoints.
-  - low.py � compiles the LangGraph with intent classification, graph tooling, scenario planning, monitoring, and response nodes.
-  - llm.py � helper for instantiating the chat model (defaults to langchain-openai).
-  - models.py � Pydantic contracts for graph payloads, mutations, scenarios, and tool call telemetry.
-  - state.py � LangGraph state definition plus helper to merge contextual data.
-  - 	ools.py � async MCP client + registry abstraction.
-  - 
-odes/ � atomic LangGraph nodes (intent classifier, graph planner/executor, scenario planner, Cypher runner, result summariser, responder).
-  - prompts/system.md � Sentinel Guide system persona.
-- pyproject.toml � dependency metadata for LangGraph/LangChain stack.
-- README.md � you are here.
+```
+Frontend (Next.js + Sigma.js)
+    ↓ WebSocket
+Backend (FastAPI + WebSocket)
+    ↓ Orchestration
+LangGraph Agent
+    ↓ MCP Protocol (stdio)
+Neo4j MCP Server (mcp-neo4j-cypher)
+    ↓ Optimized Neo4j Driver
+Neo4j Database
+```
 
-## Quickstart
+### Key Components
 
-1. Create and activate a Python =3.10 virtual environment.
-2. Install dependencies locally: pip install -e .
-3. Export environment variables:
-   - OPENAI_API_KEY (or adapt llm.py to your provider).
-   - OPENAI_MODEL (defaults to gpt-4.1).
-   - MCP_TOOLS comma-separated list, e.g. graph:https://localhost:8000/tools,caldera:https://localhost:9001/tools.
-   - Optional per-tool secrets such as MCP_GRAPH_API_KEY.
-4. Create the application and stream a conversation:
+- **🤖 LangGraph Agent**: Conversational orchestrator with intent classification, graph operations, and scenario planning
+- **📊 Neo4j Graph Database**: Network topology storage and analysis
+- **🔌 MCP Integration**: Standard protocol using `langchain-mcp-adapters` with stdio transport
+- **🎨 React Frontend**: Graph visualization with Sigma.js and real-time WebSocket updates
+- **⚡ FastAPI Backend**: Minimal API layer with WebSocket support
 
-`python
-import asyncio
-from agent.flow import create_application
-from langchain_core.messages import HumanMessage
+## 🚀 Quick Start
 
-async def main():
-    app = create_application()
-    state = {"messages": [HumanMessage(content="Load the latest BNP subnet JSON.")]}
-    async for event in app.graph.astream(state):
-        print(event)
-    await app.aclose()
+### Prerequisites
+- **Docker & Docker Compose**
+- **Python ≥3.10** (for local development)
+- **Node.js 20+** (for frontend development)
 
-asyncio.run(main())
-`
+### 1. Start the Full Stack
+```bash
+# Clone and navigate to project
+git clone <repo-url>
+cd LOL
 
-Adapt the state["messages"] list to the message objects emitted by your chat runtime (LangServe, FastAPI endpoint, etc.).
+# Start all services
+docker compose up --build
+```
 
-## Current Capabilities
+### 2. Access Services
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **Neo4j Browser**: http://localhost:7474 (neo4j/neo4jtest)
 
-- Intent classifier labels new turns and routes the LangGraph to graph mutation, scenario planning, Cypher, or response paths.
-- Graph planner produces MCP tool calls with confirmation support; executor records mutation history and tool telemetry.
-- Scenario planner queues BAS jobs via configured connectors, monitors status, and summarises findings back into the conversation.
-- Cypher node drafts guarded queries (read/write) and relays row counts; responder synthesises concise follow-ups referencing recent tool activity.
+### 3. Environment Variables
+Create `.env` file in project root:
+```bash
+# Required
+OPENAI_API_KEY=your_openai_api_key
 
-## Next Steps
+# Optional (with defaults)
+OPENAI_MODEL=gpt-4o
+AGENT_TEMPERATURE=0.1
+DEBUG=false
+```
 
-- Surface and enforce confirmation loops for destructive graph mutations (graph_plan_confirmed).
-- Add mocked MCP/Caldera clients plus LangGraph unit tests to exercise every branch.
-- Integrate the agent flow with the broader conversational entrypoint (streaming, persistence, auth) and extend telemetry/RBAC as needed.
+## 💻 Development
+
+### Backend Development
+```bash
+# Install dependencies in virtual environment
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+pip install -e .
+
+# Run tests
+pytest
+
+# Lint code
+ruff check agent/
+```
+
+### Frontend Development
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Development server
+npm run dev
+
+# Build production
+npm run build
+
+# Lint
+npm run lint
+```
+
+## 🔧 Key Technologies
+
+### Backend Stack
+- **LangGraph**: Agent workflow orchestration
+- **LangChain**: LLM abstraction and tools
+- **FastAPI**: Async web framework
+- **Pydantic**: Data validation and serialization
+- **langchain-mcp-adapters**: MCP protocol integration
+- **mcp-neo4j-cypher**: Neo4j MCP server
+
+### Frontend Stack
+- **Next.js 14**: React framework with TypeScript
+- **Sigma.js**: Graph visualization
+- **Graphology**: Graph data structures
+- **WebSocket**: Real-time communication
+
+### Database
+- **Neo4j 5.21**: Graph database with APOC procedures
+
+## 📁 Project Structure
+
+```
+├── agent/                          # LangGraph agent core
+│   ├── flow.py                     # Main LangGraph workflow
+│   ├── config.py                   # Configuration management
+│   ├── models.py                   # Pydantic data models
+│   ├── state.py                    # LangGraph state definition
+│   ├── tools.py                    # Tool registry (legacy)
+│   ├── mcp_integration.py          # MCP client for Neo4j
+│   ├── cypher_operations.py        # Cypher query builders
+│   ├── nodes/                      # LangGraph nodes
+│   │   ├── intent_classifier.py    # Route conversations
+│   │   ├── graph_tools.py          # Graph operations via MCP
+│   │   ├── scenario_planner.py     # Attack simulation
+│   │   └── cypher.py               # Cypher query execution
+│   ├── prompts/
+│   │   └── system.md               # Agent system prompt
+│   └── backend/                    # FastAPI application
+│       └── app/
+│           ├── main.py             # FastAPI app entry
+│           ├── api.py              # API routes
+│           ├── websocket.py        # WebSocket handlers
+│           └── settings.py         # App configuration
+├── frontend/                       # Next.js React app
+│   ├── components/                 # React components
+│   │   ├── GraphCanvas.tsx         # Basic graph visualization
+│   │   ├── InteractiveGraphCanvas.tsx  # Advanced graph features
+│   │   ├── GraphUploader.tsx       # Graph data upload
+│   │   └── ConnectionIndicator.tsx # WebSocket status
+│   ├── hooks/                      # React hooks
+│   │   ├── useWebSocketWithRetry.ts # WebSocket management
+│   │   └── useAppState.ts          # Application state
+│   ├── lib/                        # Utilities
+│   │   ├── api.ts                  # API client
+│   │   ├── streaming.ts            # WebSocket streaming
+│   │   └── event-handlers.ts       # Event processing
+│   ├── types/                      # TypeScript types
+│   └── public/
+│       └── sample-graph.json       # Sample network topology
+├── docker-compose.yml              # Container orchestration
+├── pyproject.toml                  # Python dependencies
+└── CLAUDE.md                       # AI assistant guidance
+```
+
+## 🔌 MCP Integration
+
+The agent uses **Model Context Protocol (MCP)** for tool integration:
+
+### Neo4j MCP Server
+- **Package**: `mcp-neo4j-cypher@0.3.0`
+- **Transport**: stdio (via `uvx`)
+- **Tools**: `run-cypher`, `get-schema`
+- **Connection**: Environment variables in docker-compose.yml
+
+### Graph Operations
+All graph operations are now handled via MCP:
+```python
+# Example: Add node via MCP
+async with Neo4jMCPClient() as client:
+    result = await client.run_cypher(
+        "CREATE (n:Host {id: $id}) SET n += $props RETURN n",
+        {"id": "server-1", "props": {"ip": "10.1.1.100"}}
+    )
+```
+
+## 📊 Graph Data Format
+
+### Nodes
+```json
+{
+  "id": "server-1",
+  "labels": ["Host", "Linux", "Critical"],
+  "attrs": {
+    "name": "Web Server",
+    "ip": "10.1.1.100",
+    "role": "webserver"
+  }
+}
+```
+
+### Edges
+```json
+{
+  "id": "e1",
+  "source": "workstation-1",
+  "target": "server-1",
+  "type": "allowed_tcp",
+  "attrs": {
+    "port": 443,
+    "proto": "tcp"
+  }
+}
+```
+
+## 🧪 Testing
+
+### Load Sample Data
+1. Visit http://localhost:3000
+2. Click "Load Sample Graph"
+3. Verify graph visualization renders correctly
+4. Check Neo4j Browser for data: `MATCH (n) RETURN n LIMIT 25`
+
+### WebSocket Communication
+- Open browser developer tools
+- Watch Network tab for WebSocket connection
+- Test agent interaction via chat interface
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**Neo4j Connection Errors**
+- Verify Neo4j container is healthy: `docker compose ps`
+- Check logs: `docker compose logs neo4j`
+- Test connection: `docker exec lol-neo4j-1 cypher-shell -u neo4j -p neo4jtest "RETURN 1"`
+
+**MCP Integration Issues**
+- Verify `mcp-neo4j-cypher` can be installed: `uvx --help`
+- Check environment variables in docker-compose.yml
+- Review agent logs for MCP errors
+
+**Frontend Build Errors**
+- Ensure Node.js 20+ is installed
+- Clear node_modules: `rm -rf frontend/node_modules && npm install`
+- Check TypeScript errors: `cd frontend && npm run build`
+
+### Development Logs
+```bash
+# Backend logs
+docker compose logs backend -f
+
+# Frontend logs
+docker compose logs frontend -f
+
+# Neo4j logs
+docker compose logs neo4j -f
+```
+
+## 🚧 Current Status
+
+✅ **Completed**
+- MCP-based Neo4j integration
+- Graph visualization with edge type mapping
+- WebSocket communication
+- Docker containerization
+- Frontend/backend CORS configuration
+
+🔄 **In Progress**
+- Agent conversation flows
+- Scenario planning integration
+- Advanced graph analysis features
+
+## 📄 License
+
+This project is part of a network defense research initiative.
