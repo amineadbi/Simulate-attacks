@@ -18,8 +18,9 @@ export default function GraphUploader({ onGraphLoaded }: GraphUploaderProps) {
         `Synced graph to backend (nodes: ${payload.nodes.length}, edges: ${payload.edges.length})`
       );
     } catch (error) {
-      console.error(error);
-      setStatus("Loaded locally but failed to sync backend");
+      console.error("Backend sync error:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setStatus(`Failed to sync backend: ${errorMessage}`);
     }
   }
 

@@ -1,58 +1,52 @@
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, Iterable, Mapping, Optional
+import logging
+from typing import Optional
 
-import httpx
+from .mcp_integration import Neo4jMCPClient, MCPGraphOperations
 
-from .config import MCPToolConfig
-from .models import ToolCallResult
-
-
-class MCPError(RuntimeError):
-    pass
-
-
-class MCPToolClient:
-    def __init__(self, config: MCPToolConfig):
-        self._config = config
-        self._client = httpx.AsyncClient(timeout=config.timeout_seconds)
-
-    @property
-    def name(self) -> str:
-        return self._config.name
-
-    async def invoke(self, path: str, payload: Dict[str, Any]) -> ToolCallResult:
-        url = f"{self._config.base_url.rstrip('/')}/{path.lstrip('/')}"
-        headers = {}
-        if self._config.api_key:
-            headers["Authorization"] = f"Bearer {self._config.api_key}"
-        start = time.perf_counter()
-        response = await self._client.post(url, json=payload, headers=headers)
-        elapsed = (time.perf_counter() - start) * 1000
-        if response.status_code >= 400:
-            raise MCPError(f"{self.name}::{path} failed with {response.status_code}: {response.text}")
-        data = response.json()
-        return ToolCallResult(name=f"{self.name}:{path}", request=payload, response=data, elapsed_ms=elapsed)
-
-    async def aclose(self) -> None:
-        await self._client.aclose()
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    def __init__(self, clients: Mapping[str, MCPToolClient]):
-        self._clients = dict(clients)
+    """Registry for managing MCP tools and Neo4j operations."""
+
+    def __init__(self):
+        self._mcp_client: Optional[Neo4jMCPClient] = None
+        self._mcp_operations: Optional[MCPGraphOperations] = None
 
     @classmethod
-    def from_config(cls, configs: Iterable[MCPToolConfig]) -> "ToolRegistry":
-        clients = {config.name: MCPToolClient(config) for config in configs}
-        return cls(clients)
+    def create_minimal(cls) -> "ToolRegistry":
+        """Create registry for stdio-based MCP tools."""
+        return cls()
 
-    def get(self, name: str) -> MCPToolClient:
-        if name not in self._clients:
-            raise KeyError(f"Tool '{name}' not registered")
-        return self._clients[name]
+    async def get_mcp_client(self) -> Neo4jMCPClient:
+        """Get or create the stdio-based MCP client for direct operations."""
+        if not self._mcp_client:
+            self._mcp_client = Neo4jMCPClient()
+            # Initialize the client immediately
+            await self._mcp_client.__aenter__()
+            logger.info("Created and initialized new Neo4j MCP client")
+        return self._mcp_client
+
+    async def get_mcp_operations(self) -> MCPGraphOperations:
+        """Get or create the MCP graph operations helper."""
+        if not self._mcp_operations:
+            client = await self.get_mcp_client()
+            self._mcp_operations = MCPGraphOperations(client)
+            logger.info("Created new MCP graph operations")
+        return self._mcp_operations
 
     async def aclose(self) -> None:
-        for client in self._clients.values():
-            await client.aclose()
+        """Close all clients and clean up resources."""
+        # Close MCP client properly
+        if self._mcp_client:
+            try:
+                await self._mcp_client.__aexit__(None, None, None)
+                logger.info("MCP client closed")
+            except Exception as e:
+                logger.warning(f"Error closing MCP client: {e}")
+
+        self._mcp_client = None
+        self._mcp_operations = None
+        logger.info("Tool registry closed")

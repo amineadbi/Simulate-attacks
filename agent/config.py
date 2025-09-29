@@ -2,41 +2,25 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 
-class MCPToolConfig(BaseModel):
-    name: str
-    base_url: str
-    api_key: Optional[str] = None
-    timeout_seconds: float = Field(default=30.0, ge=1.0)
-
-
 class AgentConfig(BaseModel):
-    model: str = Field(default=os.getenv("OPENAI_MODEL", "gpt-4.1"))
+    model: str = Field(default=os.getenv("OPENAI_MODEL", "gpt-4o"))
     system_prompt_path: Path = Field(default=Path("agent/prompts/system.md"))
-    tools: List[MCPToolConfig] = Field(default_factory=list)
     memory_max_turns: int = Field(default=12, ge=1)
     max_tool_retries: int = Field(default=2, ge=0)
     streaming: bool = True
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=4000, ge=100)
 
-    @classmethod
-    def from_env(cls) -> "AgentConfig":
-        tool_configs: List[MCPToolConfig] = []
-        raw_tools = os.getenv("MCP_TOOLS")
-        if raw_tools:
-            for chunk in raw_tools.split(","):
-                name, _, base_url = chunk.partition(":")
-                name = name.strip()
-                base_url = base_url.strip()
-                if not name or not base_url:
-                    continue
-                api_key = os.getenv(f"MCP_{name.upper()}_API_KEY")
-                tool_configs.append(MCPToolConfig(name=name, base_url=base_url, api_key=api_key))
-        return cls(tools=tool_configs)
+    # Security and validation settings
+    validate_cypher_queries: bool = Field(default=True)
+    max_graph_nodes: int = Field(default=10000, ge=1)
+    max_graph_edges: int = Field(default=50000, ge=1)
 
 
 def load_config() -> AgentConfig:
-    return AgentConfig.from_env()
+    """Load agent configuration from environment variables."""
+    return AgentConfig()

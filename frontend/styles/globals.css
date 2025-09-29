@@ -42,7 +42,7 @@ a {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: 520px 1fr;
   gap: 1rem;
   padding: 1rem;
 }
@@ -185,6 +185,10 @@ details summary {
   .right-pane {
     min-height: 400px;
   }
+
+  .chat-panel {
+    min-height: 220px;
+  }
 }
 .headline {
   display: flex;
@@ -307,3 +311,103 @@ details summary {
   font-size: 0.85rem;
   color: rgba(226, 232, 240, 0.7);
 }
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 260px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.chat-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.chat-header p {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  color: rgba(203, 213, 225, 0.8);
+}
+
+.chat-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-right: 0.5rem;
+  overflow-y: auto;
+}
+
+.chat-message {
+  max-width: 95%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(30, 58, 138, 0.3);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  align-self: flex-start;
+}
+
+.chat-message.role-user {
+  align-self: flex-end;
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(134, 239, 172, 0.35);
+}
+
+.chat-message .meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(203, 213, 225, 0.7);
+  margin-bottom: 0.35rem;
+}
+
+.chat-message .meta .role {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-message p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.chat-composer {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.chat-composer textarea {
+  flex: 1;
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+button.primary {
+  background: rgba(96, 165, 250, 0.25);
+  border-color: rgba(59, 130, 246, 0.6);
+  color: #dbeafe;
+}
+
+button.primary:hover {
+  background: rgba(96, 165, 250, 0.4);
+  border-color: rgba(96, 165, 250, 0.75);
+}
+

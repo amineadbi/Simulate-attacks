@@ -11,14 +11,23 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function loadGraph(payload: GraphPayload): Promise<GraphPayload> {
-  const response = await fetch(`${API_BASE_URL}/tools/load_graph`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  return handleResponse<GraphPayload>(response);
+  const url = `${API_BASE_URL}/tools/load_graph`;
+  console.log("Loading graph to:", url);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    console.log("Load graph response status:", response.status);
+    return handleResponse<GraphPayload>(response);
+  } catch (error) {
+    console.error("Network error loading graph:", error);
+    throw new Error(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 export async function runCypher(query: string, mode: "read" | "write" = "read"): Promise<CypherResult> {

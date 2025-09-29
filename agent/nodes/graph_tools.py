@@ -63,6 +63,34 @@ def _split_tool_name(reference: str) -> tuple[str, str]:
     raise ValueError(f"Invalid tool reference '{reference}'. Expect format 'client::path'.")
 
 
+async def confirm_graph_action(state: AgentState) -> Dict[str, Any]:
+    plan_data = state.get("context", {}).get("graph_plan")
+    if not plan_data:
+        return {"messages": [AIMessage(content="No pending graph operation to confirm.")]}
+    plan = GraphActionPlan.model_validate(plan_data)
+    ctx_update = merged_context(state, graph_plan_confirmed=True)
+    message = AIMessage(
+        content=(
+            f"Confirmed {plan.mutation.mutation.value} {plan.mutation.entity} {plan.mutation.target_id}."
+        )
+    )
+    return {**ctx_update, "messages": [message]}
+
+
+async def reject_graph_action(state: AgentState) -> Dict[str, Any]:
+    plan_data = state.get("context", {}).get("graph_plan")
+    if not plan_data:
+        return {"messages": [AIMessage(content="No pending graph operation to cancel.")]}
+    plan = GraphActionPlan.model_validate(plan_data)
+    ctx_update = merged_context(state, graph_plan=None, graph_plan_confirmed=False)
+    message = AIMessage(
+        content=(
+            f"Cancelled {plan.mutation.mutation.value} {plan.mutation.entity} {plan.mutation.target_id}. No changes applied."
+        )
+    )
+    return {**ctx_update, "messages": [message]}
+
+
 async def plan_graph_action(state: AgentState, llm: BaseChatModel) -> Dict[str, Any]:
     messages = state.get("messages", [])
     transcript = "\n".join(f"{m.type}: {m.content}" for m in messages[-6:])
@@ -74,7 +102,11 @@ async def plan_graph_action(state: AgentState, llm: BaseChatModel) -> Dict[str, 
         f"Planning to call {plan.tool_name} targeting {plan.mutation.target_id} "
         f"({plan.mutation.mutation.value})."
     )
-    ctx_update = merged_context(state, graph_plan=plan.model_dump(mode="json"))
+    ctx_update = merged_context(
+        state,
+        graph_plan=plan.model_dump(mode="json"),
+        graph_plan_confirmed=False,
+    )
     return {
         **ctx_update,
         "graph_mutations": [plan.mutation],
@@ -88,7 +120,7 @@ async def execute_graph_action(state: AgentState, tools: ToolRegistry) -> Dict[s
         return {}
     plan = GraphActionPlan.model_validate(plan_data)
 
-    if plan.requires_confirmation and state.get("context", {}).get("graph_plan_confirmed") != True:
+    if plan.requires_confirmation and not state.get("context", {}).get("graph_plan_confirmed"):
         message = AIMessage(
             content=(
                 "Planned operation is destructive. Please confirm before execution: "
@@ -97,18 +129,53 @@ async def execute_graph_action(state: AgentState, tools: ToolRegistry) -> Dict[s
         )
         return {"messages": [message]}
 
-    client_name, endpoint = _split_tool_name(plan.tool_name)
-    client = tools.get(client_name)
-    result = await client.invoke(endpoint, plan.arguments)
+    # Get the MCP client and operations
+    mcp_client = await tools.get_mcp_client()
+    mcp_ops = await tools.get_mcp_operations()
 
-    message = AIMessage(
-        content=(
-            f"Executed {plan.tool_name}. Result keys: {', '.join(result.response.keys()) if isinstance(result.response, dict) else 'ok'}."
+    # Execute operation via MCP
+    mutation = plan.mutation
+    try:
+        async with mcp_client:
+            if mutation.mutation == MutationType.CREATE:
+                if mutation.entity == "node":
+                    result = await mcp_ops.add_node(mutation.payload)
+                elif mutation.entity == "edge":
+                    result = await mcp_ops.add_edge(mutation.payload)
+                else:
+                    raise ValueError(f"Unknown entity type: {mutation.entity}")
+            elif mutation.mutation == MutationType.UPDATE:
+                if mutation.entity == "node":
+                    result = await mcp_ops.update_node(mutation.target_id, mutation.payload)
+                elif mutation.entity == "edge":
+                    result = await mcp_ops.update_edge(mutation.target_id, mutation.payload)
+                else:
+                    raise ValueError(f"Unknown entity type: {mutation.entity}")
+            elif mutation.mutation == MutationType.DELETE:
+                if mutation.entity == "node":
+                    result = await mcp_ops.delete_node(mutation.target_id)
+                elif mutation.entity == "edge":
+                    result = await mcp_ops.delete_edge(mutation.target_id)
+                else:
+                    raise ValueError(f"Unknown entity type: {mutation.entity}")
+            else:
+                raise ValueError(f"Unknown mutation type: {mutation.mutation}")
+
+        message = AIMessage(
+            content=(
+                f"Executed {mutation.mutation.value} {mutation.entity} {mutation.target_id} via MCP. "
+                f"Status: {result.get('status', 'completed')}"
+            )
         )
-    )
-    ctx_update = merged_context(state, graph_plan=None, graph_plan_confirmed=False)
-    return {
-        **ctx_update,
-        "tool_history": [result],
-        "messages": [message],
-    }
+        ctx_update = merged_context(state, graph_plan=None, graph_plan_confirmed=False)
+        return {
+            **ctx_update,
+            "tool_history": [{"name": "mcp_graph_operation", "result": result}],
+            "messages": [message],
+        }
+
+    except Exception as e:
+        message = AIMessage(
+            content=f"Failed to execute graph operation: {str(e)}"
+        )
+        return {"messages": [message]}

@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from fastmcp import FastMCP
+
+from agent.models import Edge, GraphMutation, GraphPayload, Node
+
+from .deps import get_service
+
+mcp = FastMCP("Graph Tool Suite")
+
+
+@mcp.tool(name="load_graph", description="Ingest a full graph payload into the datastore and Neo4j.")
+def tool_load_graph(payload: GraphPayload) -> Dict[str, int]:
+    service = get_service()
+    return service.load_graph(payload)
+
+
+@mcp.tool(name="add_node", description="Add a single node to the graph by id, labels, and attributes.")
+def tool_add_node(node: Node) -> Dict[str, Any]:
+    service = get_service()
+    created = service.add_node(node)
+    return created.model_dump(mode="json")
+
+
+@mcp.tool(name="add_edge", description="Create an edge between two existing nodes.")
+def tool_add_edge(edge: Edge) -> Dict[str, Any]:
+    service = get_service()
+    created = service.add_edge(edge)
+    return created.model_dump(mode="json")
+
+
+@mcp.tool(name="apply_mutation", description="Apply a prepared graph mutation such as update/delete.")
+def tool_apply_mutation(mutation: GraphMutation) -> Dict[str, Any]:
+    service = get_service()
+    return service.apply_mutation(mutation)
+
+
+@mcp.tool(name="run_cypher", description="Execute a guarded Cypher query against Neo4j.")
+def tool_run_cypher(query: str, params: Optional[Dict[str, Any]] = None, mode: str = "read") -> Dict[str, Any]:
+    service = get_service()
+    return service.run_cypher(query, params, mode)
+
+
+@mcp.tool(name="annotate_nodes", description="Tag one or more nodes with a label for later filtering.")
+def tool_annotate_nodes(node_ids: list[str], tag: str) -> Dict[str, Any]:
+    service = get_service()
+    return service.annotate_nodes(node_ids, tag)
+
+
+@mcp.tool(name="start_attack", description="Kick off an external breach-and-attack scenario.")
+def tool_start_attack(platform: str, scenario_id: str, target_selector: Dict[str, Any], parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    service = get_service()
+    job = service.start_attack(platform=platform, scenario_id=scenario_id, target_selector=target_selector, parameters=parameters)
+    return job.model_dump(mode="json")
+
+
+@mcp.tool(name="check_attack", description="Fetch status for a previously started scenario job.")
+def tool_check_attack(job_id: str) -> Dict[str, Any]:
+    service = get_service()
+    job = service.check_attack(job_id)
+    return job.model_dump(mode="json")
+
+
+@mcp.tool(name="fetch_results", description="Retrieve findings for a completed scenario job.")
+def tool_fetch_results(job_id: str) -> Dict[str, Any]:
+    service = get_service()
+    return service.fetch_results(job_id)
+
+
+http_app = mcp.http_app(path="/")
+

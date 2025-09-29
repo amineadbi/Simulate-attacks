@@ -41,3 +41,9 @@ def test_load_graph_roundtrip():
     data = subgraph.json()
     assert len(data["nodes"]) == 2
     assert len(data["edges"]) == 1
+
+def test_mcp_manifest():
+    response = client.get("/mcp/manifest.json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("name") == "Graph Tool Suite"

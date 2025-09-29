@@ -20,6 +20,24 @@ function pickColor(labels: string[]): string {
   return "#6366f1";
 }
 
+function mapEdgeTypeToSigmaType(edgeType: string): string {
+  // Map custom edge types to valid Sigma.js edge types
+  switch (edgeType) {
+    case "allowed_tcp":
+    case "allowed_udp":
+    case "network_connection":
+      return "arrow";
+    case "contains":
+    case "parent_child":
+      return "line";
+    case "encrypted":
+    case "secure":
+      return "curve";
+    default:
+      return "arrow"; // Default fallback
+  }
+}
+
 export default function GraphCanvas({ graphData, highlightNodes = [], className }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Sigma | null>(null);
@@ -43,7 +61,9 @@ export default function GraphCanvas({ graphData, highlightNodes = [], className 
         ...edge.attrs,
         label: edge.type,
         size: Number(edge.attrs?.width ?? 1),
-        color: "#94a3b8"
+        color: "#94a3b8",
+        type: mapEdgeTypeToSigmaType(edge.type),
+        originalType: edge.type
       };
       g.addEdgeWithKey(edge.id, edge.source, edge.target, attributes);
     });
@@ -56,7 +76,7 @@ export default function GraphCanvas({ graphData, highlightNodes = [], className 
 
     const renderer = new Sigma(graph, container, {
       renderLabels: true,
-      enableEdgeHoverEvents: true,
+      enableEdgeEvents: true,
       defaultNodeType: "circle",
       defaultEdgeType: "arrow"
     });

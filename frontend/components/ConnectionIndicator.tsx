@@ -1,4 +1,4 @@
-"use client";
+ï»¿"use client";
 
 import type { ConnectionState } from "../types/events";
 
@@ -23,7 +23,7 @@ export default function ConnectionIndicator({ state, lastConnectedAt }: Connecti
       <span>{LABELS[state]}</span>
       {lastConnectedAt ? (
         <span className="meta" title={`Last connected ${lastConnectedAt}`}>
-          · {new Date(lastConnectedAt).toLocaleTimeString()}
+          - {new Date(lastConnectedAt).toLocaleTimeString()}
         </span>
       ) : null}
     </div>

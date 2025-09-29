@@ -1,6 +1,7 @@
-export type AgentEventKind =
+﻿export type AgentEventKind =
   | "agent.log"
   | "agent.step"
+  | "agent.message"
   | "scenario.status"
   | "scenario.result"
   | "graph.replace"
@@ -16,12 +17,6 @@ export interface AgentEvent<TPayload = unknown> {
   source?: string;
 }
 
-export interface ConnectionMetrics {
-  attempts: number;
-  lastConnectedAt?: string;
-  lastDisconnectedAt?: string;
-}
-
 export type ConnectionState =
   | "idle"
   | "connecting"
@@ -30,11 +25,17 @@ export type ConnectionState =
   | "closed"
   | "error";
 
+export interface ConnectionMetrics {
+  attempts: number;
+  lastConnectedAt?: string;
+  lastDisconnectedAt?: string;
+}
+
 export type OutgoingAgentMessage =
   | {
       type: "agent.command";
-      command: string;
-      payload?: Record<string, unknown>;
+      command: "chat";
+      payload: { text: string };
     }
   | {
       type: "scenario.run";
@@ -48,3 +49,31 @@ export type OutgoingAgentMessage =
       request: "full" | "delta";
       since?: string;
     };
+
+export interface AgentMessagePayload {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface AgentStepPayload {
+  name: string;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
+  elapsedMs?: number | null;
+  error?: string | null;
+}
+
+export interface GraphHighlightPayload {
+  nodeIds: string[];
+}
+
+export interface ScenarioStatusPayload {
+  jobId: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface ScenarioResultPayload {
+  jobId: string;
+  findings: Record<string, unknown>;
+}
