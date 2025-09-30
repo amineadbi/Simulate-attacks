@@ -50,6 +50,15 @@ class CypherResult(BaseModel):
     summary: dict = {}
 
 
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ChatResponse(BaseModel):
+    message: str
+    timestamp: str
+
+
 @router.get("/health")
 def health(settings: Settings = Depends(get_settings)):
     return {
@@ -61,6 +70,52 @@ def health(settings: Settings = Depends(get_settings)):
             "components": ["agent", "websocket", "neo4j-mcp-server"]
         }
     }
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """Simple chat endpoint that invokes the LangGraph agent."""
+    from datetime import datetime
+    from langchain_core.messages import HumanMessage
+    from ...flow import create_application
+
+    logger.info(f"💬 Chat request received: {request.message}")
+
+    try:
+        # Create and invoke agent
+        logger.info("🚀 Creating agent application...")
+        agent_app = await create_application()
+
+        if agent_app and agent_app.graph:
+            logger.info("🤖 Invoking LangGraph agent...")
+            agent_input = {
+                "messages": [HumanMessage(content=request.message)]
+            }
+
+            result = await agent_app.graph.ainvoke(agent_input)
+            logger.info("✅ Agent execution completed")
+
+            # Extract response
+            if "messages" in result and result["messages"]:
+                last_message = result["messages"][-1]
+                response_text = last_message.content if hasattr(last_message, 'content') else str(last_message)
+            else:
+                response_text = "Agent completed but generated no response."
+
+            return ChatResponse(
+                message=response_text,
+                timestamp=datetime.utcnow().isoformat() + "Z"
+            )
+        else:
+            logger.error("❌ Agent app not available")
+            return ChatResponse(
+                message="Agent is not available at this time.",
+                timestamp=datetime.utcnow().isoformat() + "Z"
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 
 @tools_router.post("/load_graph")

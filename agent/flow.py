@@ -62,18 +62,10 @@ async def create_application(config: Optional[AgentConfig] = None, *, llm: Optio
     tools = ToolRegistry.create_minimal()  # Use minimal registry, MCP tools loaded separately
     system_message = _load_system_message(cfg.system_prompt_path)
 
-    # Load MCP tools
+    # Skip MCP tool loading during agent creation to avoid hangs
+    # MCP tools will be available through the ToolRegistry when needed
     mcp_tools = []
-    logger.info("Starting MCP tools initialization...")
-    try:
-        mcp_client = Neo4jMCPClient()
-        logger.info("Created Neo4j MCP client")
-        async with mcp_client:
-            logger.info("MCP client context entered, loading tools...")
-            mcp_tools = mcp_client.get_tools()
-            logger.info(f"✅ Successfully loaded {len(mcp_tools)} MCP tools: {[t.name for t in mcp_tools]}")
-    except Exception as e:
-        logger.error(f"❌ Failed to load MCP tools: {e}", exc_info=True)
+    logger.info("Skipping MCP tools initialization during agent creation (will be loaded on-demand)")
 
     # Create custom LangGraph with both traditional nodes and MCP tools
     logger.info("Building LangGraph state graph...")

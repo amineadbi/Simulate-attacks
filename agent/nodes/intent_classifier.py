@@ -56,6 +56,8 @@ async def classify_intent(state: AgentState, llm: BaseChatModel) -> Dict[str, An
     prompt = intent_prompt.invoke({"transcript": transcript})
     structured_llm = llm.with_structured_output(
         schema={
+            "title": "IntentClassification",
+            "description": "Classification of user intent from their message",
             "type": "object",
             "properties": {
                 "intent": {

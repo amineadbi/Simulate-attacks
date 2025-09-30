@@ -13,6 +13,8 @@ from ..state import AgentState, merged_context
 from ..tools import ToolRegistry
 
 PLAN_SCHEMA = {
+    "title": "SimulationScenarioPlan",
+    "description": "Plan for executing a cybersecurity simulation scenario",
     "type": "object",
     "properties": {
         "platform": {"type": "string", "enum": ["mock", "caldera", "metasploit", "atomic_red", "custom"]},

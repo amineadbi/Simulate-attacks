@@ -11,6 +11,8 @@ from ..state import AgentState, merged_context
 from ..tools import ToolRegistry
 
 PLAN_SCHEMA = {
+    "title": "GraphActionPlan",
+    "description": "Plan for executing a graph mutation operation",
     "type": "object",
     "properties": {
         "tool_name": {"type": "string"},
@@ -129,37 +131,35 @@ async def execute_graph_action(state: AgentState, tools: ToolRegistry) -> Dict[s
         )
         return {"messages": [message]}
 
-    # Get the MCP client and operations
-    mcp_client = await tools.get_mcp_client()
+    # Get the MCP operations (client is already initialized)
     mcp_ops = await tools.get_mcp_operations()
 
     # Execute operation via MCP
     mutation = plan.mutation
     try:
-        async with mcp_client:
-            if mutation.mutation == MutationType.CREATE:
-                if mutation.entity == "node":
-                    result = await mcp_ops.add_node(mutation.payload)
-                elif mutation.entity == "edge":
-                    result = await mcp_ops.add_edge(mutation.payload)
-                else:
-                    raise ValueError(f"Unknown entity type: {mutation.entity}")
-            elif mutation.mutation == MutationType.UPDATE:
-                if mutation.entity == "node":
-                    result = await mcp_ops.update_node(mutation.target_id, mutation.payload)
-                elif mutation.entity == "edge":
-                    result = await mcp_ops.update_edge(mutation.target_id, mutation.payload)
-                else:
-                    raise ValueError(f"Unknown entity type: {mutation.entity}")
-            elif mutation.mutation == MutationType.DELETE:
-                if mutation.entity == "node":
-                    result = await mcp_ops.delete_node(mutation.target_id)
-                elif mutation.entity == "edge":
-                    result = await mcp_ops.delete_edge(mutation.target_id)
-                else:
-                    raise ValueError(f"Unknown entity type: {mutation.entity}")
+        if mutation.mutation == MutationType.CREATE:
+            if mutation.entity == "node":
+                result = await mcp_ops.add_node(mutation.payload)
+            elif mutation.entity == "edge":
+                result = await mcp_ops.add_edge(mutation.payload)
             else:
-                raise ValueError(f"Unknown mutation type: {mutation.mutation}")
+                raise ValueError(f"Unknown entity type: {mutation.entity}")
+        elif mutation.mutation == MutationType.UPDATE:
+            if mutation.entity == "node":
+                result = await mcp_ops.update_node(mutation.target_id, mutation.payload)
+            elif mutation.entity == "edge":
+                result = await mcp_ops.update_edge(mutation.target_id, mutation.payload)
+            else:
+                raise ValueError(f"Unknown entity type: {mutation.entity}")
+        elif mutation.mutation == MutationType.DELETE:
+            if mutation.entity == "node":
+                result = await mcp_ops.delete_node(mutation.target_id)
+            elif mutation.entity == "edge":
+                result = await mcp_ops.delete_edge(mutation.target_id)
+            else:
+                raise ValueError(f"Unknown entity type: {mutation.entity}")
+        else:
+            raise ValueError(f"Unknown mutation type: {mutation.mutation}")
 
         message = AIMessage(
             content=(

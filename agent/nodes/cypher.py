@@ -20,6 +20,8 @@ PROMPT = ChatPromptTemplate.from_messages(
 )
 
 SCHEMA = {
+    "title": "CypherQueryPlan",
+    "description": "Plan for executing a Cypher query on the graph database",
     "type": "object",
     "properties": {
         "query": {"type": "string"},

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -55,11 +56,13 @@ async def handle_agent_message(websocket: WebSocket, message: Dict[str, Any], br
 
         # Send acknowledgment
         await websocket.send_text(json.dumps({
+            "id": f"log-{int(datetime.now().timestamp() * 1000)}",
             "type": "agent.log",
+            "createdAt": datetime.now().isoformat(),
             "payload": {
-                "message": f"Processing: {user_message}",
-                "level": "info"
-            }
+                "message": f"Processing: {user_message}"
+            },
+            "level": "info"
         }))
 
         # Try to invoke the real LangGraph agent
@@ -109,10 +112,12 @@ async def handle_agent_message(websocket: WebSocket, message: Dict[str, Any], br
 
         # Send agent response
         await websocket.send_text(json.dumps({
-            "type": "agent.response",
+            "id": f"msg-{int(datetime.now().timestamp() * 1000)}",
+            "type": "agent.message",
+            "createdAt": datetime.now().isoformat(),
             "payload": {
-                "message": response,
-                "timestamp": "2025-09-29T12:00:00Z"
+                "role": "assistant",
+                "content": response
             }
         }))
 
@@ -220,15 +225,23 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Initialize agent on first connection
         logger.info("🔌 WebSocket connected - initializing agent")
+        print("🔌 WebSocket connected - initializing agent")
         try:
+            print("🚀 About to call get_agent_app()...")
             agent_result = await get_agent_app()
+            print(f"🎯 get_agent_app() returned: {agent_result is not None}")
             if agent_result:
                 logger.info("✅ Agent successfully initialized on WebSocket connection")
+                print("✅ Agent successfully initialized on WebSocket connection")
             else:
                 logger.error("❌ Agent initialization returned None")
+                print("❌ Agent initialization returned None")
         except Exception as e:
             logger.error(f"❌ Agent initialization failed: {e}", exc_info=True)
+            print(f"❌ Agent initialization failed: {e}")
 
+        print("📍 About to enter message loop...")
+        logger.info("📍 Entering WebSocket message loop")
         while True:
             try:
                 # Keep the connection alive by waiting for messages
