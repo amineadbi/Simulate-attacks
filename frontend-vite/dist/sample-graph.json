@@ -1,15 +1,10 @@
 {
-  "version": "1.0",
-  "metadata": {
-    "source": "sample",
-    "description": "Sample network graph for demonstration"
-  },
   "nodes": [
     {
       "id": "web-server-1",
-      "labels": ["Server", "WebServer", "Linux"],
-      "attrs": {
-        "name": "Web Server",
+      "label": "Web Server",
+      "type": "server",
+      "attributes": {
         "ip": "192.168.1.10",
         "os": "Ubuntu 20.04",
         "services": ["nginx", "ssh"],
@@ -18,9 +13,9 @@
     },
     {
       "id": "database-1",
-      "labels": ["Server", "Database"],
-      "attrs": {
-        "name": "Database Server",
+      "label": "Database Server",
+      "type": "database",
+      "attributes": {
         "ip": "192.168.1.20",
         "os": "CentOS 7",
         "services": ["mysql", "ssh"],
@@ -29,9 +24,9 @@
     },
     {
       "id": "client-1",
-      "labels": ["Client", "Workstation", "Windows"],
-      "attrs": {
-        "name": "User Workstation",
+      "label": "User Workstation",
+      "type": "client",
+      "attributes": {
         "ip": "192.168.1.100",
         "os": "Windows 10",
         "services": ["rdp"],
@@ -40,9 +35,9 @@
     },
     {
       "id": "firewall-1",
-      "labels": ["Network", "Firewall"],
-      "attrs": {
-        "name": "Firewall",
+      "label": "Firewall",
+      "type": "firewall",
+      "attributes": {
         "ip": "192.168.1.1",
         "vendor": "pfSense",
         "criticality": "high"
@@ -50,9 +45,9 @@
     },
     {
       "id": "router-1",
-      "labels": ["Network", "Router"],
-      "attrs": {
-        "name": "Router",
+      "label": "Router",
+      "type": "network",
+      "attributes": {
         "ip": "10.0.0.1",
         "vendor": "Cisco",
         "criticality": "high"
@@ -60,9 +55,9 @@
     },
     {
       "id": "admin-pc",
-      "labels": ["Client", "Workstation", "Windows"],
-      "attrs": {
-        "name": "Admin Workstation",
+      "label": "Admin Workstation",
+      "type": "client",
+      "attributes": {
         "ip": "192.168.1.50",
         "os": "Windows 11",
         "services": ["rdp", "ssh-client"],
@@ -75,9 +70,9 @@
       "id": "edge-1",
       "source": "client-1",
       "target": "firewall-1",
+      "label": "HTTP/HTTPS",
       "type": "network_connection",
-      "attrs": {
-        "label": "HTTP/HTTPS",
+      "attributes": {
         "ports": [80, 443],
         "protocol": "TCP"
       }
@@ -86,9 +81,9 @@
       "id": "edge-2",
       "source": "firewall-1",
       "target": "web-server-1",
+      "label": "Allowed Traffic",
       "type": "allowed_connection",
-      "attrs": {
-        "label": "Allowed Traffic",
+      "attributes": {
         "ports": [80, 443],
         "protocol": "TCP"
       }
@@ -97,9 +92,9 @@
       "id": "edge-3",
       "source": "web-server-1",
       "target": "database-1",
+      "label": "Database Query",
       "type": "database_connection",
-      "attrs": {
-        "label": "Database Query",
+      "attributes": {
         "port": 3306,
         "protocol": "TCP"
       }
@@ -108,9 +103,9 @@
       "id": "edge-4",
       "source": "router-1",
       "target": "firewall-1",
+      "label": "Network Route",
       "type": "network_route",
-      "attrs": {
-        "label": "Network Route",
+      "attributes": {
         "protocol": "BGP"
       }
     },
@@ -118,9 +113,9 @@
       "id": "edge-5",
       "source": "admin-pc",
       "target": "firewall-1",
+      "label": "Management",
       "type": "management_connection",
-      "attrs": {
-        "label": "Management",
+      "attributes": {
         "ports": [22, 443],
         "protocol": "TCP"
       }
@@ -129,9 +124,9 @@
       "id": "edge-6",
       "source": "admin-pc",
       "target": "web-server-1",
+      "label": "SSH Admin",
       "type": "admin_connection",
-      "attrs": {
-        "label": "SSH Admin",
+      "attributes": {
         "port": 22,
         "protocol": "TCP"
       }

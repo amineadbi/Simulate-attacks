@@ -1,6 +1,8 @@
-
-
 import { memo } from "react";
+import { Loader2, AlertCircle, CheckCircle2, Wifi, WifiOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export interface LoadingSpinnerProps {
   size?: "small" | "medium" | "large";
@@ -9,29 +11,13 @@ export interface LoadingSpinnerProps {
 
 export const LoadingSpinner = memo(({ size = "medium", className = "" }: LoadingSpinnerProps) => {
   const sizeClasses = {
-    small: "w-4 h-4",
-    medium: "w-6 h-6",
-    large: "w-8 h-8",
+    small: "h-4 w-4",
+    medium: "h-6 w-6",
+    large: "h-8 w-8",
   };
 
   return (
-    <div className={`inline-block animate-spin ${sizeClasses[size]} ${className}`}>
-      <div className="loading-spinner">
-        <svg viewBox="0 0 24 24" fill="none">
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray="31.416"
-            strokeDashoffset="31.416"
-            className="animate-spin-path"
-          />
-        </svg>
-      </div>
-    </div>
+    <Loader2 className={cn("animate-spin text-primary", sizeClasses[size], className)} />
   );
 });
 
@@ -54,13 +40,16 @@ export const LoadingState = memo(({
 }: LoadingStateProps) => {
   if (error) {
     return (
-      <div className="loading-error">
-        <div className="error-icon">⚠️</div>
-        <p className="error-message">{error}</p>
+      <div className="flex flex-col items-center justify-center p-8 text-center">
+        <div className="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+          <AlertCircle className="h-6 w-6 text-destructive" />
+        </div>
+        <h3 className="text-sm font-semibold mb-2">Error Loading Content</h3>
+        <p className="text-sm text-muted-foreground mb-4 max-w-sm">{error}</p>
         {retryAction && (
-          <button onClick={retryAction} className="retry-button">
+          <Button onClick={retryAction} variant="outline" size="sm">
             Try Again
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -68,9 +57,9 @@ export const LoadingState = memo(({
 
   if (isLoading) {
     return (
-      <div className="loading-container">
-        <LoadingSpinner size="medium" />
-        <span className="loading-text">{loadingText}</span>
+      <div className="flex flex-col items-center justify-center p-8">
+        <LoadingSpinner size="large" className="mb-4" />
+        <p className="text-sm text-muted-foreground">{loadingText}</p>
       </div>
     );
   }
@@ -101,7 +90,7 @@ export const Skeleton = memo(({
 
   return (
     <div
-      className={`skeleton animate-pulse bg-gray-200 ${variantClasses[variant]} ${className}`}
+      className={cn("skeleton bg-muted", variantClasses[variant], className)}
       style={{ width, height }}
     />
   );
@@ -110,7 +99,7 @@ export const Skeleton = memo(({
 Skeleton.displayName = "Skeleton";
 
 export interface ProgressBarProps {
-  progress: number; // 0-100
+  progress: number;
   label?: string;
   className?: string;
 }
@@ -119,15 +108,19 @@ export const ProgressBar = memo(({ progress, label, className = "" }: ProgressBa
   const clampedProgress = Math.max(0, Math.min(100, progress));
 
   return (
-    <div className={`progress-container ${className}`}>
-      {label && <div className="progress-label">{label}</div>}
-      <div className="progress-bar">
+    <div className={cn("space-y-2", className)}>
+      {label && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{label}</span>
+          <span className="font-medium">{Math.round(clampedProgress)}%</span>
+        </div>
+      )}
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
         <div
-          className="progress-fill"
+          className="h-full bg-primary transition-all duration-300 ease-out"
           style={{ width: `${clampedProgress}%` }}
         />
       </div>
-      <div className="progress-text">{Math.round(clampedProgress)}%</div>
     </div>
   );
 });
@@ -142,27 +135,23 @@ export interface ConnectionStatusProps {
 export const ConnectionStatus = memo(({ status, message }: ConnectionStatusProps) => {
   const statusConfig = {
     connecting: {
-      icon: <LoadingSpinner size="small" />,
-      color: "text-yellow-600",
-      bgColor: "bg-yellow-50",
+      icon: <Loader2 className="h-3 w-3 animate-spin" />,
+      variant: "warning" as const,
       text: "Connecting...",
     },
     connected: {
-      icon: "🟢",
-      color: "text-green-600",
-      bgColor: "bg-green-50",
+      icon: <CheckCircle2 className="h-3 w-3" />,
+      variant: "success" as const,
       text: "Connected",
     },
     disconnected: {
-      icon: "🔴",
-      color: "text-gray-600",
-      bgColor: "bg-gray-50",
+      icon: <WifiOff className="h-3 w-3" />,
+      variant: "secondary" as const,
       text: "Disconnected",
     },
     error: {
-      icon: "⚠️",
-      color: "text-red-600",
-      bgColor: "bg-red-50",
+      icon: <AlertCircle className="h-3 w-3" />,
+      variant: "destructive" as const,
       text: "Connection Error",
     },
   };
@@ -170,10 +159,10 @@ export const ConnectionStatus = memo(({ status, message }: ConnectionStatusProps
   const config = statusConfig[status];
 
   return (
-    <div className={`connection-status ${config.bgColor} ${config.color}`}>
-      <span className="status-icon">{config.icon}</span>
-      <span className="status-text">{message || config.text}</span>
-    </div>
+    <Badge variant={config.variant} className="gap-1.5 px-2.5 py-1">
+      {config.icon}
+      <span className="text-xs font-medium">{message || config.text}</span>
+    </Badge>
   );
 });
 

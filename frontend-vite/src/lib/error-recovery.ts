@@ -65,7 +65,8 @@ export function validateGraphData(data: any): boolean {
     // Check nodes have required fields
     for (const node of data.nodes) {
       if (!node.id || typeof node.id !== "string") return false;
-      if (!Array.isArray(node.labels)) return false;
+      // Accept either labels (array) or label (string)
+      if (!node.labels && !node.label) return false;
     }
 
     // Check edges have required fields
