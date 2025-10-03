@@ -1,9 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
+
+from .caldera.config import CalderaSettings
+from .tools import MCPToolConfig
 
 
 class AgentConfig(BaseModel):
@@ -20,7 +24,20 @@ class AgentConfig(BaseModel):
     max_graph_nodes: int = Field(default=10000, ge=1)
     max_graph_edges: int = Field(default=50000, ge=1)
 
+    # External tool configuration
+    tools: List[MCPToolConfig] = Field(default_factory=list)
+
+    # Simulation platform configuration
+    caldera: CalderaSettings = Field(default_factory=CalderaSettings.from_env)
+
+    @classmethod
+    def from_env(cls, *, tools: Optional[List[MCPToolConfig]] = None) -> "AgentConfig":
+        cfg = cls()
+        if tools:
+            cfg.tools = list(tools)
+        return cfg
+
 
 def load_config() -> AgentConfig:
     """Load agent configuration from environment variables."""
-    return AgentConfig()
+    return AgentConfig.from_env()

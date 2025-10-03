@@ -10,6 +10,7 @@ from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
 
 from .config import AgentConfig, load_config
 from .llm import build_llm
@@ -19,8 +20,9 @@ from .nodes import graph_tools, intent_classifier, router as router_node
 from .nodes import respond as respond_node
 from .nodes import result_ingest
 from .nodes import scenario_planner
-from .state import AgentState, AgentStateAnnotations
+from .state import AgentState
 from .tools import ToolRegistry
+from .simulation_engine import configure_caldera_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,7 @@ async def create_application(config: Optional[AgentConfig] = None, *, llm: Optio
     """Create the agent application with MCP tools integration."""
     cfg = config or load_config()
     llm_model = llm or build_llm(cfg)
-    tools = ToolRegistry.create_minimal()  # Use minimal registry, MCP tools loaded separately
+    tools = ToolRegistry.create_minimal(caldera_settings=cfg.caldera)  # Use minimal registry, MCP tools loaded separately
     system_message = _load_system_message(cfg.system_prompt_path)
 
     # Skip MCP tool loading during agent creation to avoid hangs
@@ -69,7 +71,8 @@ async def create_application(config: Optional[AgentConfig] = None, *, llm: Optio
 
     # Create custom LangGraph with both traditional nodes and MCP tools
     logger.info("Building LangGraph state graph...")
-    builder = StateGraph(AgentState, annotations=AgentStateAnnotations)
+    configure_caldera_adapter(cfg.caldera)
+    builder = StateGraph(AgentState)  # Annotations now embedded in AgentState via Annotated types
 
     builder.add_node("classify_intent", partial(intent_classifier.classify_intent, llm=llm_model))
     builder.add_node("plan_graph_action", partial(graph_tools.plan_graph_action, llm=llm_model))
@@ -114,9 +117,11 @@ async def create_application(config: Optional[AgentConfig] = None, *, llm: Optio
 
     builder.add_edge("respond", END)
 
-    logger.info("Compiling LangGraph...")
-    graph = builder.compile()
-    logger.info("✅ LangGraph compiled successfully")
+    # Add checkpointer for state persistence
+    checkpointer = MemorySaver()
+    logger.info("Compiling LangGraph with checkpointer...")
+    graph = builder.compile(checkpointer=checkpointer)
+    logger.info("✅ LangGraph compiled successfully with persistence")
 
     app = AgentApplication(graph=graph, tools=tools, config=cfg, system_message=system_message, mcp_tools=mcp_tools)
     logger.info("✅ AgentApplication created successfully")

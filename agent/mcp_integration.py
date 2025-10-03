@@ -9,11 +9,14 @@ import os
 import logging
 from typing import Any, Dict, Optional, List
 import asyncio
+import shlex
+from contextlib import AsyncExitStack
 
 # Import the proper MCP dependencies
 try:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+    from mcp.client.streamable_http import streamable_http_client
     from langchain_mcp_adapters.tools import load_mcp_tools
     from langchain_core.tools import BaseTool
     MCP_AVAILABLE = True
@@ -36,6 +39,9 @@ class Neo4jMCPClient:
             self._session: Optional[ClientSession] = None
             self._tools: Optional[List[BaseTool]] = None
             self._stdio_context = None
+            self._http_context = None
+            self._exit_stack: Optional[AsyncExitStack] = None
+            self._transport: str | None = None
             self._mode = "mcp"
         elif NEO4J_AVAILABLE:
             self._driver = None
@@ -78,35 +84,123 @@ class Neo4jMCPClient:
 
     async def _initialize_mcp(self):
         """Initialize with proper langchain-mcp-adapters pattern."""
-        # Set environment variables for neo4j MCP server
+        # Prepare environment variables for neo4j MCP server subprocess
+        # These are passed to the subprocess, NOT set globally
         neo4j_env = {
             "NEO4J_URI": os.getenv("GRAPH_NEO4J_URI", "bolt://localhost:7687"),
             "NEO4J_USERNAME": os.getenv("GRAPH_NEO4J_USER", "neo4j"),
             "NEO4J_PASSWORD": os.getenv("GRAPH_NEO4J_PASSWORD", "neo4jtest"),
             "NEO4J_DATABASE": os.getenv("GRAPH_NEO4J_DATABASE", "neo4j"),
+            "FASTMCP_SHOW_CLI_BANNER": os.getenv("FASTMCP_SHOW_CLI_BANNER", "false"),
         }
 
-        # Update environment
-        for key, value in neo4j_env.items():
-            os.environ[key] = value
+        transport = (os.getenv("MCP_NEO4J_TRANSPORT", "stdio") or "stdio").strip().lower()
+        if transport not in {"stdio", "http", "streamable-http"}:
+            raise ValueError(f"Unsupported MCP transport: {transport}")
 
-        # Create server parameters for mcp-neo4j-cypher with explicit environment
-        server_params = StdioServerParameters(
-            command="python",
-            args=["-m", "uv", "tool", "run", "mcp-neo4j-cypher"],
-            env=neo4j_env  # Pass environment variables to the subprocess
-        )
+        self._transport = transport
+        self._exit_stack = AsyncExitStack()
 
-        # Establish stdio connection
-        self._stdio_context = stdio_client(server_params)
-        read, write = await self._stdio_context.__aenter__()
+        if transport == "stdio":
+            command = (os.getenv("MCP_NEO4J_COMMAND") or "").strip()
+            package_spec = os.getenv("MCP_NEO4J_PACKAGE", "mcp-neo4j-cypher@0.4.1")
+            args_env = os.getenv("MCP_NEO4J_ARGS", "")
+            extra_args = shlex.split(args_env) if args_env else []
+            has_transport_flag = any(arg in {"--transport", "-t"} for arg in extra_args)
 
-        # Create and initialize session
+            base_args: List[str] = []
+            if not command:
+                command = "mcp-neo4j-cypher"
+            elif command == "uvx":
+                base_args.append(package_spec)
+
+            if not has_transport_flag:
+                base_args.extend(["--transport", "stdio"])
+
+            server_args = base_args + extra_args
+
+            server_timeout = float(os.getenv("MCP_SERVER_START_TIMEOUT", "60"))
+            session_timeout = float(os.getenv("MCP_SESSION_INIT_TIMEOUT", "45"))
+
+            server_params = StdioServerParameters(
+                command=command,
+                args=server_args,
+                env=neo4j_env  # Pass environment variables to the subprocess only
+            )
+
+            self._stdio_context = stdio_client(server_params)
+
+            try:
+                read, write = await asyncio.wait_for(
+                    self._exit_stack.enter_async_context(self._stdio_context),
+                    timeout=server_timeout
+                )
+            except asyncio.TimeoutError as exc:
+                logger.error(
+                    "MCP server initialization timed out after %s seconds",
+                    server_timeout,
+                )
+                await self._close_mcp_stack(suppress_errors=True)
+                raise RuntimeError("MCP server failed to start within timeout period") from exc
+
+        else:
+            base_url = os.getenv("MCP_NEO4J_URL")
+            if not base_url:
+                host = os.getenv("MCP_NEO4J_HTTP_HOST", os.getenv("MCP_NEO4J_HOST", "127.0.0.1"))
+                port = os.getenv("MCP_NEO4J_HTTP_PORT", os.getenv("MCP_NEO4J_PORT", "8001"))
+                path = os.getenv("MCP_NEO4J_HTTP_PATH", os.getenv("MCP_NEO4J_PATH", "/api/mcp/"))
+                if not str(path).startswith("/"):
+                    path = "/" + path
+                base_url = f"http://{host}:{port}{path}"
+            base_url = base_url.rstrip('/')
+
+            logger.info("Connecting to MCP Neo4j server over HTTP at %s", base_url)
+
+            client_cm = streamable_http_client(base_url)
+            self._http_context = await self._exit_stack.enter_async_context(client_cm)
+            read, write, close = self._http_context
+            self._exit_stack.push_async_callback(close)
+            session_timeout = float(os.getenv("MCP_SESSION_INIT_TIMEOUT", "45"))
+
         self._session = ClientSession(read, write)
-        await self._session.initialize()
+        try:
+            await asyncio.wait_for(
+                self._session.initialize(),
+                timeout=session_timeout
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "MCP session initialization timed out after %s seconds",
+                session_timeout,
+            )
+            await self._close_mcp_stack(suppress_errors=True)
+            raise RuntimeError("MCP session failed to initialize within timeout period") from exc
 
-        # Load tools using langchain-mcp-adapters
-        self._tools = await load_mcp_tools(self._session)
+        try:
+            # Load tools using langchain-mcp-adapters
+            self._tools = await load_mcp_tools(self._session)
+        except Exception:
+            await self._close_mcp_stack(suppress_errors=True)
+            raise
+
+    async def _close_mcp_stack(self, *, suppress_errors: bool = False) -> None:
+        """Safely close any active MCP contexts."""
+        if self._exit_stack:
+            try:
+                await self._exit_stack.aclose()
+            except Exception as exc:  # pragma: no cover - defensive cleanup
+                if suppress_errors and "Attempted to exit cancel scope" in str(exc):
+                    logger.debug("Suppressed MCP stdio close error: %s", exc)
+                else:
+                    logger.warning("Error closing MCP stdio stack: %s", exc)
+            finally:
+                self._exit_stack = None
+
+        self._stdio_context = None
+        self._http_context = None
+        self._session = None
+        self._tools = None
+
 
     async def _initialize_direct(self):
         """Initialize with direct Neo4j driver."""
@@ -125,22 +219,7 @@ class Neo4jMCPClient:
     async def _cleanup(self):
         """Clean up resources."""
         if self._mode == "mcp":
-            if self._session:
-                try:
-                    # Session cleanup is handled by the context manager
-                    self._session = None
-                except Exception as e:
-                    logger.warning(f"Error cleaning up MCP session: {e}")
-
-            if self._stdio_context:
-                try:
-                    await self._stdio_context.__aexit__(None, None, None)
-                except Exception as e:
-                    logger.warning(f"Error closing stdio context: {e}")
-                finally:
-                    self._stdio_context = None
-
-            self._tools = None
+            await self._close_mcp_stack()
         elif self._mode == "direct" and self._driver:
             try:
                 await self._driver.close()
@@ -195,10 +274,10 @@ class Neo4jMCPClient:
 
     async def _call_direct_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Call tool using direct Neo4j driver."""
-        if tool_name == "run-cypher":
+        if tool_name in ("read_neo4j_cypher", "write_neo4j_cypher"):
             query = params.get("query", "")
-            cypher_params = params.get("params", {})
-            mode = params.get("mode", "read")
+            cypher_params = params.get("parameters", params.get("params", {}))  # Support both param names
+            mode = "write" if tool_name == "write_neo4j_cypher" else "read"
 
             if mode == "write":
                 async with self._driver.session() as session:
@@ -223,7 +302,7 @@ class Neo4jMCPClient:
                         "summary": {"query": query, "parameters": cypher_params}
                     }
 
-        elif tool_name == "get-schema":
+        elif tool_name == "get_neo4j_schema":
             # Get schema information
             async with self._driver.session() as session:
                 # Get node labels
@@ -245,7 +324,7 @@ class Neo4jMCPClient:
         """Call tool in mock mode."""
         logger.debug(f"Mock call to {tool_name} with params: {params}")
 
-        if tool_name == "run-cypher":
+        if tool_name in ("read_neo4j_cypher", "write_neo4j_cypher"):
             query = params.get("query", "")
             if "CREATE" in query.upper():
                 return {"records": [], "summary": {"nodes_created": 1}}
@@ -253,7 +332,7 @@ class Neo4jMCPClient:
                 return {"records": [{"n": {"id": "mock-node", "name": "Mock Node"}}], "summary": {"nodes_returned": 1}}
             else:
                 return {"records": [], "summary": {"query_executed": True}}
-        elif tool_name == "get-schema":
+        elif tool_name == "get_neo4j_schema":
             return {
                 "node_labels": ["Host", "Server", "Database"],
                 "relationship_types": ["CONNECTS_TO", "HOSTS", "CONTAINS"]
@@ -269,7 +348,7 @@ class Neo4jMCPClient:
         if self._mode == "mcp" and self._tools:
             return [tool.name for tool in self._tools]
         else:
-            return ["run-cypher", "get-schema"]
+            return ["read_neo4j_cypher", "write_neo4j_cypher", "get_neo4j_schema"]
 
 
 class MCPGraphOperations:
@@ -281,7 +360,7 @@ class MCPGraphOperations:
     async def get_schema(self) -> Dict[str, Any]:
         """Get graph schema information."""
         try:
-            return await self.client.call_tool("get-schema", {})
+            return await self.client.call_tool("get_neo4j_schema", {})
         except Exception as e:
             logger.error(f"Failed to get schema: {e}")
             raise
@@ -294,11 +373,14 @@ class MCPGraphOperations:
         if mode not in ["read", "write"]:
             raise ValueError("Mode must be either 'read' or 'write'")
 
+        # Use correct MCP Neo4j Cypher tool names
+        tool_name = "write_neo4j_cypher" if mode == "write" else "read_neo4j_cypher"
+
         try:
-            return await self.client.call_tool("run-cypher", {
+            return await self.client.call_tool(tool_name, {
                 "query": query.strip(),
-                "params": params or {},
-                "mode": mode
+                "parameters": params or {},
+                "timeout": 30
             })
         except Exception as e:
             logger.error(f"Failed to execute Cypher query: {e}")
@@ -333,7 +415,8 @@ class MCPGraphOperations:
             attrs["id"] = node_data["id"]
 
         query = f"""
-        CREATE (n:{label_str} $props)
+        CREATE (n:{label_str})
+        SET n = $props
         RETURN n
         """
 
@@ -468,3 +551,4 @@ class MCPGraphOperations:
                 results["errors"].append(error_msg)
 
         return results
+

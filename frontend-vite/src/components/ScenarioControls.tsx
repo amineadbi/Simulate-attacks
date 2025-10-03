@@ -126,6 +126,16 @@ export default function ScenarioControls({
           <p>
             <strong>Status:</strong> {latestStatus.status}
           </p>
+          {latestStatus.platform ? (
+            <p>
+              <strong>Platform:</strong> {latestStatus.platform}
+            </p>
+          ) : null}
+          {typeof latestStatus.progress === "number" ? (
+            <p>
+              <strong>Progress:</strong> {latestStatus.progress.toFixed(1)}%
+            </p>
+          ) : null}
           {latestStatus.details ? <p className="description">{latestStatus.details}</p> : null}
         </div>
       ) : (
@@ -134,3 +144,4 @@ export default function ScenarioControls({
     </section>
   );
 }
+

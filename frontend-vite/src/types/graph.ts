@@ -40,6 +40,8 @@ export interface ScenarioRunRequest {
 export interface ScenarioRunStatus {
   jobId: string;
   status: "pending" | "running" | "succeeded" | "failed";
+  platform?: string;
+  progress?: number;
   startedAt?: string;
   completedAt?: string;
   details?: string;

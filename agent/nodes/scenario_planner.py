@@ -141,6 +141,10 @@ async def execute_scenario(state: AgentState, tools: ToolRegistry) -> Dict[str, 
     # Start simulation using the simulation engine
     engine = get_simulation_engine()
 
+    if scenario.platform == SimulationPlatform.CALDERA and SimulationPlatform.CALDERA not in engine.platform_adapters:
+        message = AIMessage(content="Caldera integration is not configured or unavailable.")
+        return {"messages": [message]}
+
     try:
         simulation_job = await engine.start_simulation(scenario)
 

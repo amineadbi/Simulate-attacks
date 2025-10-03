@@ -43,17 +43,18 @@ async def run_cypher(state: AgentState, llm: BaseChatModel, tools: ToolRegistry)
     params = plan.get("params", {})
     mode = plan["mode"]
     limit = plan.get("limit")
-    payload: Dict[str, Any] = {"query": query, "params": params, "mode": mode}
-    if limit:
-        payload["limit"] = limit
 
-    client = tools.get("graph")
-    result = await client.invoke("run_cypher", payload)
-    records = result.response.get("records", [])
+    # Use MCP operations to run Cypher query
+    mcp_ops = await tools.get_mcp_operations()
+    result = await mcp_ops.run_cypher(query, params, mode)
+
+    # Extract records from MCP result
+    records = result if isinstance(result, list) else []
     message = AIMessage(
         content=(
-            f"Ran Cypher in {mode} mode. Returned {len(records)} rows. "
+            f"Ran Cypher in {mode} mode. Returned {len(records)} records. "
+            f"Query: {query}\n"
             f"Justification: {plan.get('justification', 'n/a')}"
         )
     )
-    return {"tool_history": [result], "messages": [message]}
+    return {"messages": [message]}

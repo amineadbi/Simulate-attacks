@@ -1,8 +1,8 @@
-"""
+﻿"""
 Tests for the tools registry functionality.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from agent.tools import ToolRegistry, MCPToolClient
 from agent.config import MCPToolConfig
@@ -40,7 +40,7 @@ class TestMCPToolClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {"result": "success"}
 
-        with pytest.mock.patch.object(client._client, 'post', return_value=mock_response):
+        with patch.object(client._client, 'post', return_value=mock_response):
             result = await client.invoke("test/endpoint", {"param": "value"})
 
             assert result.name == "test-tool:test/endpoint"
@@ -57,7 +57,7 @@ class TestMCPToolClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {"result": "authenticated"}
 
-        with pytest.mock.patch.object(client._client, 'post', return_value=mock_response) as mock_post:
+        with patch.object(client._client, 'post', return_value=mock_response) as mock_post:
             await client.invoke("secure/endpoint", {})
 
             # Verify auth header was included
@@ -73,7 +73,7 @@ class TestMCPToolClient:
         mock_response.status_code = 500
         mock_response.text = "Internal server error"
 
-        with pytest.mock.patch.object(client._client, 'post', return_value=mock_response):
+        with patch.object(client._client, 'post', return_value=mock_response):
             with pytest.raises(Exception) as exc_info:
                 await client.invoke("failing/endpoint", {})
 
@@ -82,7 +82,7 @@ class TestMCPToolClient:
     @pytest.mark.asyncio
     async def test_client_close(self, client):
         """Test client cleanup."""
-        with pytest.mock.patch.object(client._client, 'aclose') as mock_close:
+        with patch.object(client._client, 'aclose') as mock_close:
             await client.aclose()
             mock_close.assert_called_once()
 
@@ -132,7 +132,7 @@ class TestToolRegistry:
     @pytest.mark.asyncio
     async def test_get_mcp_client(self, registry):
         """Test getting MCP client."""
-        with pytest.mock.patch('agent.tools.Neo4jMCPClient') as MockClient:
+        with patch('agent.tools.Neo4jMCPClient') as MockClient:
             mock_instance = AsyncMock()
             MockClient.return_value = mock_instance
 
@@ -144,7 +144,7 @@ class TestToolRegistry:
     @pytest.mark.asyncio
     async def test_get_mcp_client_cached(self, registry):
         """Test MCP client is cached."""
-        with pytest.mock.patch('agent.tools.Neo4jMCPClient') as MockClient:
+        with patch('agent.tools.Neo4jMCPClient') as MockClient:
             mock_instance = AsyncMock()
             MockClient.return_value = mock_instance
 
@@ -163,8 +163,8 @@ class TestToolRegistry:
         """Test getting MCP operations."""
         mock_client = AsyncMock()
 
-        with pytest.mock.patch.object(registry, 'get_mcp_client', return_value=mock_client):
-            with pytest.mock.patch('agent.tools.MCPGraphOperations') as MockOps:
+        with patch.object(registry, 'get_mcp_client', return_value=mock_client):
+            with patch('agent.tools.MCPGraphOperations') as MockOps:
                 mock_ops_instance = AsyncMock()
                 MockOps.return_value = mock_ops_instance
 
@@ -178,8 +178,8 @@ class TestToolRegistry:
         """Test MCP operations are cached."""
         mock_client = AsyncMock()
 
-        with pytest.mock.patch.object(registry, 'get_mcp_client', return_value=mock_client):
-            with pytest.mock.patch('agent.tools.MCPGraphOperations') as MockOps:
+        with patch.object(registry, 'get_mcp_client', return_value=mock_client):
+            with patch('agent.tools.MCPGraphOperations') as MockOps:
                 mock_ops_instance = AsyncMock()
                 MockOps.return_value = mock_ops_instance
 

@@ -12,11 +12,70 @@ try:
 except ImportError:
     from simulation_engine import SimulationScenario, SimulationStep, SimulationPlatform
 
+CALDERA_DEFAULT_OPERATION = {
+    'group': 'red',
+    'planner': 'atomic',
+    'source': 'basic',
+    'jitter': '2/8',
+    'autonomous': 1,
+    'auto_close': 0,
+    'visibility': 50,
+    'phases_enabled': 1,
+}
+
+CALDERA_ACTION_MAP = {
+    'default': [
+        {'action': 'create_operation', 'auto_start': True},
+        {'action': 'await_links', 'minimum_links': 1},
+        {'action': 'await_completion'},
+        {'action': 'collect_results'},
+    ],
+    'lateral_movement': [
+        {'action': 'create_operation', 'auto_start': True},
+        {'action': 'await_links', 'minimum_links': 2},
+        {'action': 'await_completion'},
+        {'action': 'collect_results'},
+    ],
+    'privilege_escalation': [
+        {'action': 'create_operation', 'auto_start': True},
+        {'action': 'await_links', 'minimum_links': 1},
+        {'action': 'await_completion'},
+        {'action': 'collect_results'},
+    ],
+    'data_exfiltration': [
+        {'action': 'create_operation', 'auto_start': True},
+        {'action': 'await_links', 'minimum_links': 2},
+        {'action': 'await_completion'},
+        {'action': 'collect_results'},
+    ],
+    'persistence': [
+        {'action': 'create_operation', 'auto_start': True},
+        {'action': 'await_links', 'minimum_links': 1},
+        {'action': 'await_completion'},
+        {'action': 'collect_results'},
+    ],
+}
+
+
+def _apply_caldera_metadata(scenario: SimulationScenario, template_name: str) -> None:
+    actions = CALDERA_ACTION_MAP.get(template_name, CALDERA_ACTION_MAP['default'])
+    caldera_params = scenario.parameters.setdefault('caldera', {})
+    operation_cfg = caldera_params.setdefault('operation', {})
+    for key, value in CALDERA_DEFAULT_OPERATION.items():
+        operation_cfg.setdefault(key, value)
+
+    scenario.platform_metadata.setdefault('caldera', {})
+    scenario.platform_metadata['caldera']['template'] = template_name
+
+    for idx, step in enumerate(scenario.steps):
+        action_meta = actions[min(idx, len(actions) - 1)]
+        step.platform_metadata.setdefault('caldera', {}).update(action_meta)
+
 
 def create_lateral_movement_scenario(platform: SimulationPlatform = SimulationPlatform.MOCK) -> SimulationScenario:
     """Generic lateral movement simulation scenario."""
 
-    return SimulationScenario(
+    scenario = SimulationScenario(
         scenario_id="lateral_movement_generic",
         name="Network Lateral Movement Simulation",
         description="Simulate lateral movement across network segments",
@@ -62,12 +121,15 @@ def create_lateral_movement_scenario(platform: SimulationPlatform = SimulationPl
         ],
         estimated_total_time=timedelta(minutes=38)
     )
+    if platform == SimulationPlatform.CALDERA:
+        _apply_caldera_metadata(scenario, 'lateral_movement')
+    return scenario
 
 
 def create_privilege_escalation_scenario(platform: SimulationPlatform = SimulationPlatform.MOCK) -> SimulationScenario:
     """Generic privilege escalation simulation scenario."""
 
-    return SimulationScenario(
+    scenario = SimulationScenario(
         scenario_id="privilege_escalation_generic",
         name="Privilege Escalation Simulation",
         description="Simulate privilege escalation to administrative access",
@@ -113,12 +175,15 @@ def create_privilege_escalation_scenario(platform: SimulationPlatform = Simulati
         ],
         estimated_total_time=timedelta(minutes=32)
     )
+    if platform == SimulationPlatform.CALDERA:
+        _apply_caldera_metadata(scenario, 'privilege_escalation')
+    return scenario
 
 
 def create_data_exfiltration_scenario(platform: SimulationPlatform = SimulationPlatform.MOCK) -> SimulationScenario:
     """Generic data exfiltration simulation scenario."""
 
-    return SimulationScenario(
+    scenario = SimulationScenario(
         scenario_id="data_exfiltration_generic",
         name="Data Exfiltration Simulation",
         description="Simulate sensitive data discovery and exfiltration",
@@ -164,12 +229,15 @@ def create_data_exfiltration_scenario(platform: SimulationPlatform = SimulationP
         ],
         estimated_total_time=timedelta(hours=1, minutes=10)
     )
+    if platform == SimulationPlatform.CALDERA:
+        _apply_caldera_metadata(scenario, 'data_exfiltration')
+    return scenario
 
 
 def create_persistence_scenario(platform: SimulationPlatform = SimulationPlatform.MOCK) -> SimulationScenario:
     """Generic persistence establishment scenario."""
 
-    return SimulationScenario(
+    scenario = SimulationScenario(
         scenario_id="persistence_generic",
         name="Persistence Establishment Simulation",
         description="Simulate establishing persistent access to compromised systems",
@@ -214,6 +282,9 @@ def create_persistence_scenario(platform: SimulationPlatform = SimulationPlatfor
         ],
         estimated_total_time=timedelta(minutes=45)
     )
+    if platform == SimulationPlatform.CALDERA:
+        _apply_caldera_metadata(scenario, 'persistence')
+    return scenario
 
 
 def create_custom_scenario(

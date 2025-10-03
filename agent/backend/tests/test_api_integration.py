@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from agent.backend.app.api import build_app
-
+from agent.simulation_engine import SimulationPlatform
 
 @pytest.fixture
 def app():
@@ -27,6 +27,58 @@ def mock_tool_registry():
     registry.get_mcp_client.return_value = AsyncMock()
     registry.get_mcp_operations.return_value = AsyncMock()
     return registry
+
+
+
+
+class DummyStatus:
+    def __init__(self, value: str):
+        self.value = value
+
+
+class DummyEvent:
+    def __init__(self, description: str):
+        self.description = description
+
+
+class DummyJob:
+    def __init__(self, job_id: str, *, status: str = "initializing", progress: float = 0.0,
+                 findings: dict | None = None, platform_context: dict | None = None,
+                 events: list | None = None):
+        self.job_id = job_id
+        self.status = DummyStatus(status)
+        self.progress_percentage = progress
+        self.findings = findings or {}
+        self.platform_context = platform_context or {}
+        self.events = events or []
+
+
+class DummyEngine:
+    def __init__(self):
+        self.jobs: dict[str, DummyJob] = {}
+        self.started_scenarios = []
+        self.platform_adapters: dict = {}
+
+    async def start_simulation(self, scenario):
+        job_id = f"job-{len(self.jobs) + 1:03d}"
+        job = DummyJob(job_id)
+        self.jobs[job_id] = job
+        self.started_scenarios.append(scenario)
+        return job
+
+    async def get_job_status(self, job_id: str):
+        return self.jobs.get(job_id)
+
+
+@pytest.fixture
+def mock_simulation_engine(monkeypatch):
+    engine = DummyEngine()
+    engine.platform_adapters = {
+        SimulationPlatform.MOCK: object(),
+        SimulationPlatform.CALDERA: object(),
+    }
+    monkeypatch.setattr('agent.backend.app.api.get_simulation_engine', lambda: engine)
+    return engine
 
 
 class TestHealthEndpoint:
@@ -82,6 +134,8 @@ class TestGraphOperations:
         assert data["nodes_created"] == 2
         assert data["edges_created"] == 1
         assert len(data["errors"]) == 0
+        assert data["summary"]["nodes"] == 2
+        assert data["summary"]["edges"] == 1
         # Should include original payload for frontend
         assert "nodes" in data
         assert "edges" in data
@@ -125,6 +179,8 @@ class TestGraphOperations:
 
         data = response.json()
         assert data["nodes_created"] == 1
+        assert data["summary"]["nodes"] == 1
+        assert data["summary"]["edges"] == 0
         assert len(data["errors"]) == 1
 
 
@@ -150,10 +206,12 @@ class TestCypherOperations:
         assert response.status_code == 200
 
         data = response.json()
-        assert "records" in data
-        assert "summary" in data
-        assert len(data["records"]) == 1
-        assert data["records"][0]["n.id"] == "node1"
+        assert data == mock_mcp_ops.run_cypher.return_value
+        mock_mcp_ops.run_cypher.assert_awaited_once_with(
+            query="MATCH (n) RETURN n.id, n.name LIMIT 1",
+            params={},
+            mode="read"
+        )
 
     def test_run_cypher_empty_query(self, client):
         """Test Cypher query with empty query string."""
@@ -179,10 +237,12 @@ class TestCypherOperations:
         response = client.post("/tools/run_cypher", json=payload)
         assert response.status_code == 400
 
+    @patch('agent.backend.app.api.get_settings')
     @patch('agent.backend.app.api.get_tool_registry')
-    def test_run_cypher_write_mode(self, mock_get_registry, client, mock_tool_registry):
-        """Test Cypher query in write mode."""
+    def test_run_cypher_write_mode(self, mock_get_registry, mock_get_settings, client, mock_tool_registry):
+        """Test Cypher query in write mode when enabled."""
         mock_get_registry.return_value = mock_tool_registry
+        mock_get_settings.return_value = Settings(allow_write_cypher=True)
         mock_mcp_ops = mock_tool_registry.get_mcp_operations.return_value
         mock_mcp_ops.run_cypher.return_value = {
             "records": [],
@@ -191,92 +251,131 @@ class TestCypherOperations:
 
         payload = {
             "query": "CREATE (n:Test {name: 'test'}) RETURN n",
-            "mode": "write"
+            "mode": "write",
+            "params": {"name": "test"}
         }
 
         response = client.post("/tools/run_cypher", json=payload)
         assert response.status_code == 200
 
-        # Verify write mode was passed to MCP operations
-        mock_mcp_ops.run_cypher.assert_called_once()
-        call_args = mock_mcp_ops.run_cypher.call_args
-        assert call_args[1]["mode"] == "write"
+        mock_mcp_ops.run_cypher.assert_awaited_once_with(
+            query=payload["query"],
+            params={"name": "test"},
+            mode="write"
+        )
 
 
 class TestSimulationEndpoints:
     """Test attack simulation endpoints."""
 
-    def test_start_attack_success(self, client):
+    def test_start_attack_success(self, client, mock_simulation_engine):
         """Test starting attack simulation."""
         payload = {
-            "platform": "test",
-            "target": "192.168.1.0/24"
+            "platform": "mock",
+            "scenarioId": "lateral_movement"
         }
 
         response = client.post("/tools/start_attack", json=payload)
         assert response.status_code == 200
 
         data = response.json()
-        assert "job_id" in data
-        assert "status" in data
-        assert data["status"] == "started"
-        assert data["platform"] == "test"
+        assert data["jobId"].startswith("job-")
+        assert data["status"] == "pending"
+        assert data["platform"] == "mock"
+        assert data["scenarioId"] == "lateral_movement"
+        assert mock_simulation_engine.started_scenarios
+
+    def test_start_attack_caldera_merges_params(self, client, mock_simulation_engine):
+        payload = {
+            "platform": "caldera",
+            "scenarioId": "lateral_movement",
+            "params": {
+                "caldera": {
+                    "operation": {
+                        "planner": "batch",
+                        "visibility": 80
+                    }
+                },
+                "stealth_level": "high"
+            }
+        }
+
+        response = client.post("/tools/start_attack", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["platform"] == "caldera"
+
+        scenario = mock_simulation_engine.started_scenarios[-1]
+        caldera_params = scenario.parameters.get("caldera", {})
+        operation_cfg = caldera_params.get("operation", {})
+        assert operation_cfg.get("planner") == "batch"
+        assert operation_cfg.get("autonomous") == 1
+        assert scenario.parameters.get("stealth_level") == "high"
 
     def test_start_attack_invalid_payload(self, client):
         """Test starting attack with invalid payload."""
         response = client.post("/tools/start_attack", json="invalid")
         assert response.status_code == 400
+        assert "detail" in response.json()
 
-        data = response.json()
-        assert "error" in data
+    def test_start_attack_missing_scenario(self, client):
+        """Scenario ID is required."""
+        response = client.post("/tools/start_attack", json={"platform": "mock"})
+        assert response.status_code == 400
 
-    def test_check_attack_status(self, client):
+    def test_check_attack_status(self, client, mock_simulation_engine):
         """Test checking attack status."""
-        payload = {"job_id": "sim-test123"}
+        mock_simulation_engine.jobs["sim-test123"] = DummyJob(
+            job_id="sim-test123",
+            status="running",
+            progress=42.5,
+            events=[DummyEvent("Running step 1")],
+        )
 
-        response = client.post("/tools/check_attack", json=payload)
+        response = client.post("/tools/check_attack", json={"job_id": "sim-test123"})
         assert response.status_code == 200
 
         data = response.json()
-        assert "job_id" in data
-        assert "status" in data
-        assert data["job_id"] == "sim-test123"
+        assert data["jobId"] == "sim-test123"
+        assert data["status"] == "running"
+        assert data["progress"] == pytest.approx(42.5)
+        assert data["details"] == "Running step 1"
 
     def test_check_attack_missing_job_id(self, client):
         """Test checking attack status without job ID."""
         response = client.post("/tools/check_attack", json={})
         assert response.status_code == 400
 
-        data = response.json()
-        assert "error" in data
-
-    def test_fetch_results_success(self, client):
+    def test_fetch_results_success(self, client, mock_simulation_engine):
         """Test fetching attack results."""
-        payload = {"job_id": "sim-test123"}
+        mock_simulation_engine.jobs["sim-test123"] = DummyJob(
+            job_id="sim-test123",
+            status="completed",
+            progress=100.0,
+            findings={"summary": {"scenario_name": "Test Scenario", "summary": "Completed"}},
+            platform_context={"caldera": {"operation_id": "op-123"}},
+        )
 
-        response = client.post("/tools/fetch_results", json=payload)
+        response = client.post("/tools/fetch_results", json={"job_id": "sim-test123"})
         assert response.status_code == 200
 
         data = response.json()
-        assert "job_id" in data
-        assert "findings" in data
-        assert "recommendations" in data
-        assert data["job_id"] == "sim-test123"
-        assert isinstance(data["findings"], list)
-        assert isinstance(data["recommendations"], list)
+        assert data["jobId"] == "sim-test123"
+        assert data["status"] == "succeeded"
+        assert isinstance(data["findings"], dict)
+        assert data["platformContext"]["caldera"]["operation_id"] == "op-123"
+        assert data["details"] == "Completed"
 
-    def test_fetch_results_unknown_job(self, client):
+    def test_fetch_results_unknown_job(self, client, mock_simulation_engine):
         """Test fetching results for unknown job."""
-        payload = {"job_id": "unknown-job"}
-
-        response = client.post("/tools/fetch_results", json=payload)
+        response = client.post("/tools/fetch_results", json={"job_id": "unknown-job"})
         assert response.status_code == 200
 
         data = response.json()
-        assert data["job_id"] == "unknown-job"
-        assert len(data["findings"]) == 0
-        assert len(data["recommendations"]) == 0
-        assert "No results found" in data["message"]
+        assert data["jobId"] == "unknown-job"
+        assert data["status"] == "unknown"
+        assert data["findings"] == {}
+        assert data["platformContext"] == {}
 
 
 class TestErrorHandling:
@@ -318,3 +417,4 @@ class TestErrorHandling:
 
         # FastAPI should handle this with Pydantic validation
         assert response.status_code == 422
+

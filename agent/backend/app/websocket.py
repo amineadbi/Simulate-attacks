@@ -2,38 +2,82 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime
-from typing import Dict, Any
+from enum import Enum
+from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from langchain_core.messages import HumanMessage
+
+
+class WebSocketErrorType(str, Enum):
+    """Enumeration of WebSocket error types for structured error handling."""
+    JSON_DECODE = "json_decode_error"
+    AGENT_INITIALIZATION = "agent_initialization_error"
+    AGENT_EXECUTION = "agent_execution_error"
+    MESSAGE_VALIDATION = "message_validation_error"
+    INTERNAL_ERROR = "internal_error"
+    CONNECTION_ERROR = "connection_error"
+try:
+    from langchain_core.messages import HumanMessage
+    LANGCHAIN_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    LANGCHAIN_AVAILABLE = False
+
+    class HumanMessage:  # type: ignore
+        def __init__(self, content: str):
+            self.content = content
+
+try:
+    from ...flow import create_application
+    FLOW_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    FLOW_AVAILABLE = False
+    create_application = None  # type: ignore
 
 from .events import get_broker, EventBroker
-from ...flow import create_application
 from ...mcp_integration import Neo4jMCPClient
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Global agent instance
-_agent_app = None
+if not LANGCHAIN_AVAILABLE:
+    logger.warning("langchain_core not available; using simple HumanMessage stub")
 
 
-async def get_agent_app():
-    """Get or create the agent application."""
-    global _agent_app
-    if _agent_app is None:
-        try:
-            logger.info("🚀 Starting agent application creation...")
-            _agent_app = await create_application()
-            logger.info("✅ Agent application created successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to create agent application: {e}", exc_info=True)
-            # Fallback to None, will use mock responses
-            _agent_app = None
-    else:
-        logger.debug("♻️ Reusing existing agent application")
-    return _agent_app
+def get_agent_app_from_state(websocket: WebSocket):
+    """Get agent application from FastAPI app state."""
+    if not hasattr(websocket.app.state, 'agent_app'):
+        logger.warning("Agent app not initialized in app state")
+        return None
+    return websocket.app.state.agent_app
+
+
+async def send_error_message(
+    websocket: WebSocket,
+    error_type: WebSocketErrorType,
+    message: str,
+    recoverable: bool = True,
+    retry_after_ms: Optional[int] = None
+) -> None:
+    """Send structured error message to client with reconnection metadata."""
+    error_payload = {
+        "type": "error",
+        "payload": {
+            "error_type": error_type.value,
+            "message": message,
+            "recoverable": recoverable,
+            "timestamp": datetime.now().isoformat()
+        }
+    }
+
+    if retry_after_ms is not None:
+        error_payload["payload"]["retry_after_ms"] = retry_after_ms
+
+    try:
+        await websocket.send_text(json.dumps(error_payload))
+    except Exception as e:
+        logger.error(f"Failed to send error message: {e}")
 
 
 async def handle_agent_message(websocket: WebSocket, message: Dict[str, Any], broker: EventBroker):
@@ -52,7 +96,7 @@ async def handle_agent_message(websocket: WebSocket, message: Dict[str, Any], br
         user_message = None
 
     if user_message:
-        logger.info(f"📨 Processing user message: '{user_message}' (type: {message_type}, command: {command})")
+        logger.info(f"Processing user message: '{user_message}' (type: {message_type}, command: {command})")
 
         # Send acknowledgment
         await websocket.send_text(json.dumps({
@@ -67,48 +111,85 @@ async def handle_agent_message(websocket: WebSocket, message: Dict[str, Any], br
 
         # Try to invoke the real LangGraph agent
         try:
-            logger.info("🔄 Getting agent application...")
-            agent_app = await get_agent_app()
+            logger.info("Getting agent application from app state...")
+            agent_app = get_agent_app_from_state(websocket)
             if agent_app and agent_app.graph:
-                logger.info("🤖 Agent available, invoking LangGraph...")
+                logger.info("Agent available, invoking LangGraph...")
+
+                configurable: Dict[str, Any] = {}
+
+                thread_id = payload.get("thread_id") or getattr(websocket.state, "thread_id", None)
+                if not thread_id:
+                    thread_id = getattr(websocket.state, "connection_id", None)
+                if not thread_id:
+                    thread_id = uuid.uuid4().hex
+                websocket.state.thread_id = thread_id
+                configurable["thread_id"] = thread_id
+
+                checkpoint_ns = payload.get("checkpoint_ns") or getattr(websocket.state, "checkpoint_ns", None)
+                if checkpoint_ns:
+                    configurable["checkpoint_ns"] = checkpoint_ns
+                    websocket.state.checkpoint_ns = checkpoint_ns
+
+                checkpoint_id = payload.get("checkpoint_id")
+                if checkpoint_id:
+                    configurable["checkpoint_id"] = checkpoint_id
+
+                graph_config = {"configurable": configurable}
+
+                logger.info(f"Using LangGraph config: {graph_config}")
+
                 # Create a proper agent state with the user message
                 agent_input = {
                     "messages": [HumanMessage(content=user_message)]
                 }
-                logger.info(f"📝 Agent input prepared: {agent_input}")
+                logger.info(f"Agent input prepared: {agent_input}")
 
-                # Invoke the agent
-                logger.info("🚀 Invoking agent.graph.ainvoke...")
-                result = await agent_app.graph.ainvoke(agent_input)
-                logger.info(f"✅ Agent execution completed. Result keys: {list(result.keys()) if isinstance(result, dict) else type(result)}")
+                # Invoke the agent with streaming to capture each node execution
+                logger.info("Invoking agent.graph.astream...")
+                print("Starting LangGraph execution with streaming...")
+
+                # Stream events to see each node execution
+                final_result = None
+                async for event in agent_app.graph.astream(agent_input, config=graph_config):
+                    node_name = list(event.keys())[0] if event else "unknown"
+                    print(f"LangGraph Node: {node_name}")
+                    logger.info(f"Executing node: {node_name}")
+                    logger.debug(f"   Node output: {event}")
+                    final_result = event
+
+                # Get the final state
+                result = final_result if final_result else {}
+                logger.info(f"Agent execution completed. Result keys: {list(result.keys()) if isinstance(result, dict) else type(result)}")
+                print(f"LangGraph execution completed")
 
                 # Extract the response from the agent result
                 if "messages" in result and result["messages"]:
                     last_message = result["messages"][-1]
                     response = last_message.content if hasattr(last_message, 'content') else str(last_message)
-                    logger.info(f"💬 Agent response extracted: {response[:100]}...")
+                    logger.info(f"Agent response extracted: {response[:100]}...")
                 else:
                     response = "Agent completed processing but no response was generated."
-                    logger.warning("⚠️ No messages in agent result")
+                    logger.warning("No messages in agent result")
 
-                logger.info(f"📤 Sending agent response to WebSocket")
+                logger.info("Sending agent response to WebSocket")
             else:
                 # Fallback to enhanced mock response if agent creation failed
                 logger.warning("Using mock response - agent not available")
                 response = await generate_agent_response(user_message)
 
         except Exception as e:
-            logger.error(f"Error invoking agent: {e}")
-            # Fallback to mock response on error
+            logger.error(f"Error invoking agent: {e}", exc_info=True)
+            # Send structured error with retry guidance
+            await send_error_message(
+                websocket,
+                WebSocketErrorType.AGENT_EXECUTION,
+                f"Agent execution failed: {str(e)}",
+                recoverable=True,
+                retry_after_ms=1000
+            )
+            # Fallback to mock response
             response = await generate_agent_response(user_message)
-            # Also send error log
-            await websocket.send_text(json.dumps({
-                "type": "agent.log",
-                "payload": {
-                    "message": f"Agent error (using fallback): {str(e)}",
-                    "level": "warning"
-                }
-            }))
 
         # Send agent response
         await websocket.send_text(json.dumps({
@@ -159,10 +240,10 @@ async def generate_agent_response(user_message: str) -> str:
     if any(word in message_lower for word in ["simulation", "attack", "scenario"]):
         return (
             "I can help you run attack simulations! Here are some options:\n\n"
-            "• **Lateral Movement**: Simulate attacker movement between systems\n"
-            "• **Privilege Escalation**: Test elevation of privileges\n"
-            "• **Data Exfiltration**: Analyze data theft scenarios\n"
-            "• **Persistence**: Evaluate long-term access methods\n\n"
+            "- **Lateral Movement**: Simulate attacker movement between systems\n"
+            "- **Privilege Escalation**: Test elevation of privileges\n"
+            "- **Data Exfiltration**: Analyze data theft scenarios\n"
+            "- **Persistence**: Evaluate long-term access methods\n\n"
             "To start a simulation, try: 'Run a lateral movement simulation'"
         )
 
@@ -188,95 +269,85 @@ async def generate_agent_response(user_message: str) -> str:
 
     elif any(word in message_lower for word in ["help", "how", "what", "?"]):
         return (
-            "Welcome to the **Graph Scenario Workbench**! 🎯\n\n"
+            "Welcome to the **Graph Scenario Workbench**!\n\n"
             "**What I can help with:**\n"
-            "• 📊 **Graph Analysis** - Upload and visualize network topologies\n"
-            "• 🎭 **Attack Simulations** - Run cybersecurity scenarios\n"
-            "• 🔍 **Cypher Queries** - Explore graph data with Neo4j queries\n"
-            "• 📈 **Real-time Monitoring** - Track simulation progress\n\n"
+            "- **Graph analysis** - upload and visualize network topologies\n"
+            "- **Attack simulations** - run cybersecurity scenarios\n"
+            "- **Cypher queries** - explore graph data with Neo4j queries\n"
+            "- **Real-time monitoring** - track simulation progress\n\n"
             "**Quick start:** Try 'Load sample graph' to see the visualization!"
         )
-
     else:
         return (
             f"I understand you're asking about: *{user_message}*\n\n"
             "I'm a cybersecurity agent focused on graph analysis and attack simulations. "
             "For best results, try queries about:\n"
-            "• Network topology analysis\n"
-            "• Attack scenario planning\n"
-            "• Graph data exploration\n\n"
+            "- Network topology analysis\n"
+            "- Attack scenario planning\n"
+            "- Graph data exploration\n\n"
             "Type 'help' for more information!"
         )
 
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    print("🚨 WEBSOCKET ENDPOINT HIT!")  # Basic print to ensure it's called
-    logger.info("🚨 WEBSOCKET ENDPOINT HIT!")
+    logger.info("WebSocket endpoint hit")
+    print("WebSocket endpoint hit")
 
     broker = get_broker()
     connection = None
 
     try:
-        logger.info("🤝 Accepting WebSocket connection...")
+        logger.info("Accepting WebSocket connection...")
         await websocket.accept()
-        logger.info("✅ WebSocket accepted, registering with broker...")
+        logger.info("WebSocket accepted, registering with broker...")
         connection = await broker.register(websocket)
+        websocket.state.connection = connection
+        websocket.state.connection_id = connection.id
+        if not getattr(websocket.state, 'thread_id', None):
+            websocket.state.thread_id = connection.id
 
-        # Initialize agent on first connection
-        logger.info("🔌 WebSocket connected - initializing agent")
-        print("🔌 WebSocket connected - initializing agent")
-        try:
-            print("🚀 About to call get_agent_app()...")
-            agent_result = await get_agent_app()
-            print(f"🎯 get_agent_app() returned: {agent_result is not None}")
-            if agent_result:
-                logger.info("✅ Agent successfully initialized on WebSocket connection")
-                print("✅ Agent successfully initialized on WebSocket connection")
-            else:
-                logger.error("❌ Agent initialization returned None")
-                print("❌ Agent initialization returned None")
-        except Exception as e:
-            logger.error(f"❌ Agent initialization failed: {e}", exc_info=True)
-            print(f"❌ Agent initialization failed: {e}")
+        # Agent app is already initialized in app.state by lifespan
+        logger.info("WebSocket connected - agent app available from app.state")
 
-        print("📍 About to enter message loop...")
-        logger.info("📍 Entering WebSocket message loop")
+        logger.info("Entering WebSocket message loop")
         while True:
             try:
                 # Keep the connection alive by waiting for messages
-                logger.info("🔄 Waiting for WebSocket message...")
+                logger.info("Waiting for WebSocket message...")
                 data = await websocket.receive_text()
-                logger.info(f"📥 WebSocket received message: {data[:200]}...")
+                logger.info(f"WebSocket received message: {data[:200]}...")
 
                 # Parse and handle agent messages
                 try:
                     message = json.loads(data)
-                    logger.info(f"📥 Parsed WebSocket message: type={message.get('type')}, command={message.get('command')}")
+                    logger.info(f"Parsed WebSocket message: type={message.get('type')}, command={message.get('command')}")
                     await handle_agent_message(websocket, message, broker)
                 except json.JSONDecodeError as e:
-                    logger.error(f"❌ JSON decode error: {e}")
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "payload": {"message": "Invalid JSON format"}
-                    }))
+                    logger.error(f"JSON decode error: {e}")
+                    await send_error_message(
+                        websocket,
+                        WebSocketErrorType.JSON_DECODE,
+                        "Invalid JSON format in message",
+                        recoverable=True
+                    )
             except WebSocketDisconnect:
                 logger.info("WebSocket client disconnected normally")
                 break
             except Exception as e:
-                logger.error(f"WebSocket error during receive: {e}")
-                # Send error message to client if possible
-                try:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "payload": {"message": f"WebSocket error: {str(e)}"}
-                    }))
-                except:
-                    pass
+                logger.error(f"WebSocket error during receive: {e}", exc_info=True)
+                # Send structured error with reconnection hint
+                await send_error_message(
+                    websocket,
+                    WebSocketErrorType.INTERNAL_ERROR,
+                    f"Internal server error: {str(e)}",
+                    recoverable=True,
+                    retry_after_ms=5000  # Suggest reconnect after 5 seconds
+                )
                 break
 
     except Exception as e:
-        logger.error(f"WebSocket connection error: {e}")
+        logger.error(f"WebSocket connection error: {e}", exc_info=True)
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except:

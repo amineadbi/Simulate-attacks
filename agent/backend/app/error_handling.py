@@ -116,54 +116,54 @@ async def global_exception_handler(request: Request, exc: Exception) -> Response
 
 def validate_graph_payload(payload: Dict[str, Any]) -> None:
     """Validate graph payload structure."""
-    logger.info(f"🔍 Validating graph payload: {type(payload)}")
+    logger.info(f"[search] Validating graph payload: {type(payload)}")
 
     if not isinstance(payload, dict):
-        logger.error(f"❌ Payload validation failed: expected dict, got {type(payload)}")
+        logger.error(f"[error] Payload validation failed: expected dict, got {type(payload)}")
         raise ValidationError("payload", payload, "Must be a dictionary")
 
-    logger.info(f"📊 Payload keys: {list(payload.keys())}")
+    logger.info(f"[graph] Payload keys: {list(payload.keys())}")
 
     # Validate nodes
     nodes = payload.get("nodes", [])
-    logger.info(f"📦 Found {len(nodes) if isinstance(nodes, list) else 'invalid'} nodes")
+    logger.info(f"[package] Found {len(nodes) if isinstance(nodes, list) else 'invalid'} nodes")
 
     if not isinstance(nodes, list):
-        logger.error(f"❌ Nodes validation failed: expected list, got {type(nodes)}")
+        logger.error(f"[error] Nodes validation failed: expected list, got {type(nodes)}")
         raise ValidationError("nodes", nodes, "Must be a list")
 
     for i, node in enumerate(nodes):
         if not isinstance(node, dict):
-            logger.error(f"❌ Node[{i}] validation failed: expected dict, got {type(node)}")
+            logger.error(f"[error] Node[{i}] validation failed: expected dict, got {type(node)}")
             raise ValidationError(f"nodes[{i}]", node, "Must be a dictionary")
 
         # Check for required ID field
         if "id" not in node:
-            logger.error(f"❌ Node[{i}] missing required 'id' field: {node}")
+            logger.error(f"[error] Node[{i}] missing required 'id' field: {node}")
             raise ValidationError(f"nodes[{i}].id", None, "Node must have an 'id' field")
 
     # Validate edges
     edges = payload.get("edges", [])
-    logger.info(f"🔗 Found {len(edges) if isinstance(edges, list) else 'invalid'} edges")
+    logger.info(f"[link] Found {len(edges) if isinstance(edges, list) else 'invalid'} edges")
 
     if not isinstance(edges, list):
-        logger.error(f"❌ Edges validation failed: expected list, got {type(edges)}")
+        logger.error(f"[error] Edges validation failed: expected list, got {type(edges)}")
         raise ValidationError("edges", edges, "Must be a list")
 
     for i, edge in enumerate(edges):
         if not isinstance(edge, dict):
-            logger.error(f"❌ Edge[{i}] validation failed: expected dict, got {type(edge)}")
+            logger.error(f"[error] Edge[{i}] validation failed: expected dict, got {type(edge)}")
             raise ValidationError(f"edges[{i}]", edge, "Must be a dictionary")
 
         # Check for required source and target fields
         if "source" not in edge:
-            logger.error(f"❌ Edge[{i}] missing required 'source' field: {edge}")
+            logger.error(f"[error] Edge[{i}] missing required 'source' field: {edge}")
             raise ValidationError(f"edges[{i}].source", None, "Edge must have a 'source' field")
         if "target" not in edge:
-            logger.error(f"❌ Edge[{i}] missing required 'target' field: {edge}")
+            logger.error(f"[error] Edge[{i}] missing required 'target' field: {edge}")
             raise ValidationError(f"edges[{i}].target", None, "Edge must have a 'target' field")
 
-    logger.info("✅ Graph payload validation successful")
+    logger.info("[ok] Graph payload validation successful")
 
 
 def validate_cypher_query(query: str) -> None:

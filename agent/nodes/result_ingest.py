@@ -32,9 +32,10 @@ async def summarise_job(state: AgentState, llm: BaseChatModel, tools: ToolRegist
     if not job_id or not platform:
         return {"messages": [AIMessage(content="No job information available.")]}
 
-    client = tools.get(platform)
-    result = await client.invoke("fetch_results", {"job_id": job_id})
-    findings = result.response
+    # Note: Result fetching for simulation platforms is not yet implemented
+    # This would require additional platform-specific clients (Caldera, Metasploit, etc.)
+    findings = {"job_id": job_id, "platform": platform, "status": status, "note": "Result fetching not yet implemented"}
+
     summary = await llm.ainvoke(
         SUMMARY_PROMPT.format_messages(
             job_context=f"job_id={job_id}, platform={platform}, status={status}", findings=findings
@@ -42,5 +43,4 @@ async def summarise_job(state: AgentState, llm: BaseChatModel, tools: ToolRegist
     )
     return {
         "messages": [AIMessage(content=summary.content)],
-        "tool_history": [result],
     }
