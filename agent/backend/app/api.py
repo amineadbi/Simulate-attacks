@@ -105,9 +105,9 @@ def tools_health(settings: Settings = Depends(get_settings)):
 
 
 @tools_router.post("/load_graph")
-async def load_graph(payload: GraphPayload) -> Dict[str, Any]:
+async def load_graph(payload: GraphPayload, session_id: Optional[str] = None) -> Dict[str, Any]:
     """Load graph data via MCP and return status."""
-    logger.info(f"Received load_graph request with {len(payload.nodes)} nodes and {len(payload.edges)} edges")
+    logger.info(f"Received load_graph request with {len(payload.nodes)} nodes and {len(payload.edges)} edges, session_id={session_id}")
 
     # Validate payload structure
     graph_data = {"nodes": payload.nodes, "edges": payload.edges}
@@ -116,9 +116,9 @@ async def load_graph(payload: GraphPayload) -> Dict[str, Any]:
 
     # Load graph using GLOBAL MCP operations instance
     async def _load_graph():
-        logger.info("Using GLOBAL MCP operations for graph loading...")
+        logger.info(f"Using GLOBAL MCP operations for graph loading with session_id={session_id}...")
         mcp_ops = await get_mcp_operations()
-        result = await mcp_ops.load_graph(graph_data)
+        result = await mcp_ops.load_graph(graph_data, session_id=session_id)
         logger.info(f"Graph load completed: {result}")
         return result
 
@@ -141,6 +141,116 @@ async def load_graph(payload: GraphPayload) -> Dict[str, Any]:
         "summary": summary,
         "nodes": payload.nodes,  # For frontend visualization
         "edges": payload.edges   # For frontend visualization
+    }
+
+
+@tools_router.get("/get_graph")
+async def get_graph(limit: int = 1000, session_id: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch current graph state from Neo4j, optionally filtered by session_id."""
+    logger.info(f"Fetching graph with limit={limit}, session_id={session_id}")
+
+    async def _get_graph():
+        mcp_ops = await get_mcp_operations()
+
+        # Build queries with optional session_id filter
+        if session_id:
+            nodes_query = f"MATCH (n) WHERE n.session_id = $session_id RETURN n LIMIT {limit}"
+            edges_query = f"MATCH (a)-[r]->(b) WHERE a.session_id = $session_id AND b.session_id = $session_id AND r.session_id = $session_id RETURN a, r, b LIMIT {limit}"
+            params = {"session_id": session_id}
+        else:
+            nodes_query = f"MATCH (n) RETURN n LIMIT {limit}"
+            edges_query = f"MATCH (a)-[r]->(b) RETURN a, r, b LIMIT {limit}"
+            params = {}
+
+        # Query to get all nodes
+        nodes_result = await mcp_ops.run_cypher(nodes_query, params, mode="read")
+
+        # Query to get all relationships
+        edges_result = await mcp_ops.run_cypher(edges_query, params, mode="read")
+
+        # Transform results to graph payload format
+        nodes = []
+        edges = []
+
+        # Process nodes
+        for record in nodes_result.get("records", []):
+            node = record.get("n")
+            if not node:
+                continue
+
+            # Handle Neo4j node object (has _properties, _labels, etc.)
+            if hasattr(node, '_properties'):
+                properties = dict(node._properties)
+                labels = list(node._labels) if hasattr(node, '_labels') else ["Node"]
+            elif isinstance(node, dict):
+                properties = node
+                labels = properties.pop("labels", ["Node"]) if "labels" in properties else ["Node"]
+            else:
+                continue
+
+            node_id = properties.get("id", f"node_{len(nodes)}")
+            attrs = {k: v for k, v in properties.items() if k != "id"}
+
+            nodes.append({
+                "id": node_id,
+                "labels": labels if isinstance(labels, list) else [labels],
+                "attrs": attrs
+            })
+
+        # Process edges
+        for record in edges_result.get("records", []):
+            a_node = record.get("a")
+            r_rel = record.get("r")
+            b_node = record.get("b")
+
+            if not (a_node and r_rel and b_node):
+                continue
+
+            # Extract IDs from source and target nodes
+            if hasattr(a_node, '_properties'):
+                source_id = dict(a_node._properties).get("id")
+            elif isinstance(a_node, dict):
+                source_id = a_node.get("id")
+            else:
+                continue
+
+            if hasattr(b_node, '_properties'):
+                target_id = dict(b_node._properties).get("id")
+            elif isinstance(b_node, dict):
+                target_id = b_node.get("id")
+            else:
+                continue
+
+            # Extract relationship properties
+            if hasattr(r_rel, '_properties'):
+                rel_props = dict(r_rel._properties)
+                rel_type = r_rel.type if hasattr(r_rel, 'type') else rel_props.get("type", "RELATED")
+            elif isinstance(r_rel, dict):
+                rel_props = r_rel
+                rel_type = rel_props.get("type", "RELATED")
+            else:
+                continue
+
+            edges.append({
+                "source": source_id,
+                "target": target_id,
+                "type": rel_type,
+                "attrs": {k: v for k, v in rel_props.items() if k != "type"}
+            })
+
+        return {"nodes": nodes, "edges": edges}
+
+    result = await with_error_handling("get_graph", _get_graph)
+    logger.info(f"Fetched {len(result['nodes'])} nodes and {len(result['edges'])} edges")
+
+    return {
+        "status": "success",
+        "nodes": result["nodes"],
+        "edges": result["edges"],
+        "count": {
+            "nodes": len(result["nodes"]),
+            "edges": len(result["edges"])
+        }
     }
 
 
@@ -191,6 +301,30 @@ async def run_cypher(request: CypherRequest) -> CypherResult:
         records=records,
         summary=summary
     )
+
+
+@tools_router.post("/clear_session")
+async def clear_session(payload: dict) -> Dict[str, Any]:
+    """Clear all nodes and edges for a specific session."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a dictionary")
+
+    session_id = payload.get("session_id") or payload.get("sessionId")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # Execute clear using GLOBAL MCP operations instance
+    async def _clear_session():
+        mcp_ops = await get_mcp_operations()
+        return await mcp_ops.clear_session(session_id)
+
+    result = await with_error_handling("clear_session", _clear_session)
+
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "deleted_count": result.get("deleted_count", 0)
+    }
 
 
 @tools_router.post("/start_attack")
