@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Workflow } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import AgentStepsPanel from "./AgentStepsPanel";
 import type { ConnectionState } from "../types/events";
+import type { AgentStep } from "../types/app-state";
 
 export interface ChatMessageItem {
   id: string;
@@ -22,6 +24,7 @@ interface ChatPanelProps {
   onSend: (text: string) => void;
   disabled?: boolean;
   isWaitingForAgent?: boolean;
+  agentSteps?: AgentStep[];
 }
 
 const PLACEHOLDER = "Ask the agent to explore the graph or plan a scenario...";
@@ -31,15 +34,26 @@ export default function ChatPanel({
   connectionState,
   onSend,
   disabled = false,
-  isWaitingForAgent = false
+  isWaitingForAgent = false,
+  agentSteps = []
 }: ChatPanelProps) {
   const [draft, setDraft] = useState<string>("");
+  const [showSteps, setShowSteps] = useState<boolean>(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  // Auto-show steps when agent is processing
+  useEffect(() => {
+    if (isWaitingForAgent && agentSteps.length > 0) {
+      setShowSteps(true);
+    }
+  }, [isWaitingForAgent, agentSteps.length]);
+
+  const hasActiveSteps = agentSteps.some(step => step.status === "running");
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +77,39 @@ export default function ChatPanel({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Agent Steps Toggle */}
+      {agentSteps.length > 0 && (
+        <div className="px-6 pt-4 pb-2">
+          <Button
+            onClick={() => setShowSteps(!showSteps)}
+            variant="ghost"
+            size="sm"
+            className="w-full gap-2 text-xs"
+          >
+            <Workflow className="h-3 w-3" />
+            {showSteps ? "Hide" : "Show"} Agent Steps
+            {hasActiveSteps && (
+              <Badge variant="default" className="ml-auto h-5">
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                Processing
+              </Badge>
+            )}
+            {!hasActiveSteps && agentSteps.length > 0 && (
+              <Badge variant="secondary" className="ml-auto h-5">
+                {agentSteps.length}
+              </Badge>
+            )}
+          </Button>
+        </div>
+      )}
+
+      {/* Agent Steps Panel */}
+      {showSteps && agentSteps.length > 0 && (
+        <div className="border-b border-white/10">
+          <AgentStepsPanel steps={agentSteps} className="max-h-64" />
+        </div>
+      )}
+
       {/* Messages */}
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="space-y-4">
