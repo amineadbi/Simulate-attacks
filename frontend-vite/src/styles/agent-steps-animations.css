@@ -1,0 +1,138 @@
+/* Agent Steps Panel Animations */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+  }
+}
+
+/* Step entry animation */
+.agent-step-enter {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Running step pulse */
+.agent-step-running {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Completed step check */
+.agent-step-complete {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Error shake */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.agent-step-error {
+  animation: shake 0.3s ease-in-out, fade-in 0.2s ease-out;
+}
+
+/* Panel expand/collapse */
+.agent-steps-panel-enter {
+  animation: slide-in 0.3s ease-out;
+}
+
+/* Spinner rotation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.agent-steps-spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* Status badge pulse */
+@keyframes badge-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(0.95);
+  }
+}
+
+.agent-steps-badge-active {
+  animation: badge-pulse 1.5s ease-in-out infinite;
+}
+
+/* Connection line grow */
+@keyframes line-grow {
+  from {
+    height: 0;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+.agent-step-connection-line {
+  animation: line-grow 0.2s ease-out;
+}
+
+/* Duration counter */
+@keyframes duration-appear {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.agent-step-duration {
+  animation: duration-appear 0.3s ease-out;
+}
+
+/* Hover effects */
+.agent-step-item:hover {
+  transform: translateX(2px);
+  transition: transform 0.2s ease-out;
+}
+
+/* Smooth transitions */
+.agent-steps-panel {
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+.agent-steps-toggle {
+  transition: all 0.2s ease-out;
+}
+
+.agent-steps-toggle:hover {
+  transform: translateY(-1px);
+}
